@@ -36,9 +36,10 @@ jobs:
           echo "Keystore successfully decoded. Size: $(wc -c < ${{ github.workspace }}/safevoice.jks) bytes"
 
       # FIX 2: Safeguard the printing step so empty environment credentials don't hang the runner
+      # Updated the default alias fallback from 'upload' to your correct alias 'viaro'
       - name: Print Keystore SHA Fingerprints
         env:
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS || vars.KEY_ALIAS || 'upload' }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || vars.KEY_ALIAS || 'viaro' }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || vars.KEYSTORE_PASSWORD }}
         run: |
           if [ -z "$KEYSTORE_PASSWORD" ]; then
@@ -65,12 +66,14 @@ jobs:
         run: chmod +x gradlew
 
       # FIX 3: Aligned the environment variables to match exactly what your build.gradle.kts expects
+      # Added KEY_ALIAS env variable with 'viaro' as the fallback to align with the build script
       - name: Build Release APK
         run: ./gradlew assembleRelease
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/safevoice.jks # Changed from KEYSTORE_FILE to match Gradle
           STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || vars.KEYSTORE_PASSWORD }} # Changed from KEYSTORE_PASSWORD to match Gradle
           KEY_PASSWORD:  ${{ secrets.KEY_PASSWORD || vars.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || vars.KEY_ALIAS || 'viaro' }}
 
       # FIX 4: Use a wildcard match for the path so the upload does not fail if your file is named differently
       - name: Upload APK
