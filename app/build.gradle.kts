@@ -28,7 +28,8 @@ android {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
+      // Read the alias dynamically from the environment, defaulting to the correct "viaro" alias
+      keyAlias = System.getenv("KEY_ALIAS") ?: "viaro"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
