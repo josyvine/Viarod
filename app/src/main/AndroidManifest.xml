@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Core Native Hardware & GPS Permissions -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    
+    <!-- Background Process & Foreground Services -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    
+    <!-- Sync, Network, Cache, & System States -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
+
+    <application
+        android:name="com.viaro.viaroApplication"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MyApplication"
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:targetApi="31">
+
+        <!-- 1. Splash Entrance Activity (Main Launcher) -->
+        <activity
+            android:name="com.viaro.activities.SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.MyApplication">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- 2. Main Role Selection Dashboard -->
+        <activity
+            android:name="com.viaro.activities.MainActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication"/>
+
+        <!-- 3. Driver Registration/Setup Form -->
+        <activity
+            android:name="com.viaro.activities.DriverSetupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication"/>
+
+        <!-- 4. Driver Live Broadcasting Map Workspace -->
+        <activity
+            android:name="com.viaro.activities.DriverMapActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication"/>
+
+        <!-- 5. Passenger Menu Gateway -->
+        <activity
+            android:name="com.viaro.activities.UserMenuActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication"/>
+
+        <!-- 6. Passenger Live Tracking Map Overlay -->
+        <activity
+            android:name="com.viaro.activities.TrackBusActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication"/>
+
+        <!-- 7. P2P Sync Terminal -->
+        <activity
+            android:name="com.viaro.activities.MeetSetupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication"/>
+
+        <!-- 8. P2P Two-person Live Map Workspace -->
+        <activity
+            android:name="com.viaro.activities.MeetMapActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication"/>
+
+        <!-- 9. Foreground Location Broadcasting Service -->
+        <service
+            android:name="com.viaro.services.LocationService"
+            android:foregroundServiceType="location"
+            android:enabled="true"
+            android:exported="false"/>
+
+        <!-- 10. Boot Receiver Listener -->
+        <receiver
+            android:name="com.viaro.receivers.BootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

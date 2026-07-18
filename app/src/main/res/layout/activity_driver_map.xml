@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <!-- OSMDroid Map View -->
+    <org.osmdroid.views.MapView
+        android:id="@+id/map_driver"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"/>
+
+    <!-- Top Info Bar overlay -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:backgroundTint="@color/surface"
+        android:elevation="6dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/tv_driver_bus_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Bus: Checking..."
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary"/>
+
+            <TextView
+                android:id="@+id/tv_driver_route"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Route: --- to ---"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginTop="4dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:src="@drawable/ic_speed"
+                    android:tint="@color/secondary"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/tv_driver_speed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Current Speed: 0 km/h"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold"/>
+            </LinearLayout>
+
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Floating End Trip Button at the bottom -->
+    <Button
+        android:id="@+id/btn_end_trip"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/button_height"
+        android:layout_alignParentBottom="true"
+        android:layout_margin="24dp"
+        android:background="@drawable/bg_button"
+        android:backgroundTint="@color/error"
+        android:text="End Trip / Stop Broadcast"
+        android:textColor="@color/white"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        style="?android:attr/borderlessButtonStyle"/>
+
+</RelativeLayout>

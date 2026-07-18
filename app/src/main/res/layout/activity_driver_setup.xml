@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Driver Registration"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:layout_marginTop="24dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Enter the following details to register this vehicle and start broadcasting your coordinates."
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="32dp"/>
+
+    <!-- Form Container -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:backgroundTint="@color/surface"
+        android:elevation="4dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Bus Name -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Bus Name / Route Number"
+                android:textColor="@color/text_primary"
+                android:textStyle="bold"
+                android:textSize="14sp"
+                android:layout_marginBottom="6dp"/>
+
+            <EditText
+                android:id="@+id/et_bus_name"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@drawable/bg_search"
+                android:hint="e.g. Metro Transit Line 10A"
+                android:textColorHint="@color/text_muted"
+                android:textColor="@color/text_primary"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:inputType="text"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp"/>
+
+            <!-- Start Point -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Starting Station"
+                android:textColor="@color/text_primary"
+                android:textStyle="bold"
+                android:textSize="14sp"
+                android:layout_marginBottom="6dp"/>
+
+            <EditText
+                android:id="@+id/et_start_point"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@drawable/bg_search"
+                android:hint="e.g. Central Square Station"
+                android:textColorHint="@color/text_muted"
+                android:textColor="@color/text_primary"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:inputType="text"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp"/>
+
+            <!-- End Point -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Destination Station"
+                android:textColor="@color/text_primary"
+                android:textStyle="bold"
+                android:textSize="14sp"
+                android:layout_marginBottom="6dp"/>
+
+            <EditText
+                android:id="@+id/et_end_point"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@drawable/bg_search"
+                android:hint="e.g. Airport Terminal 2"
+                android:textColorHint="@color/text_muted"
+                android:textColor="@color/text_primary"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:inputType="text"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp"/>
+
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+
+    <!-- Disclaimer / Consent -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Notice: Broadcasting location requires access to background location permissions to update coordinates even when the screen is locked."
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp"
+        android:layout_marginBottom="16dp"
+        android:gravity="center"/>
+
+    <Button
+        android:id="@+id/btn_start_broadcasting"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/button_height"
+        android:background="@drawable/bg_button"
+        android:text="Start Broadcasting"
+        android:textColor="@color/white"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp"
+        style="?android:attr/borderlessButtonStyle"/>
+
+</LinearLayout>

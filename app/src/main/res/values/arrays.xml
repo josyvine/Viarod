@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Navigation Bottom Menu Options -->
+    <string-array name="bottom_nav_labels">
+        <item>Overview</item>
+        <item>Live GPS</item>
+        <item>Stations</item>
+        <item>Settings</item>
+    </string-array>
+</resources>

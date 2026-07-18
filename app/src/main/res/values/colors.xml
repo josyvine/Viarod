@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Core Brand Palette -->
+    <color name="primary">#1E40AF</color>         <!-- Deep Royal Blue -->
+    <color name="primary_variant">#1D4ED8</color> <!-- Vibrant Blue -->
+    <color name="secondary">#0D9488</color>       <!-- Teal Accent -->
+    <color name="secondary_variant">#14B8A6</color>
+    
+    <!-- Neutral Palette -->
+    <color name="background">#0F172A</color>      <!-- Dark Slate Background -->
+    <color name="surface">#1E293B</color>         <!-- Card Slate Surface -->
+    <color name="error">#EF4444</color>           <!-- Soft Red -->
+    <color name="success">#22C55E</color>         <!-- Soft Green -->
+    
+    <!-- Text Palette -->
+    <color name="text_primary">#F8FAFC</color>    <!-- Crisp Off-White -->
+    <color name="text_secondary">#94A3B8</color>  <!-- Slate Gray -->
+    <color name="text_muted">#64748B</color>
+    
+    <!-- UI Elements -->
+    <color name="border_color">#334155</color>
+    <color name="ripple_color">#20FFFFFF</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="black">#FF000000</color>
+    <color name="transparent">#00000000</color>
+    
+    <!-- Legacy Support -->
+    <color name="purple_200">#93C5FD</color>
+    <color name="purple_500">#3B82F6</color>
+    <color name="purple_700">#1D4ED8</color>
+    <color name="teal_200">#99F6E4</color>
+    <color name="teal_700">#0F766E</color>
+</resources>
