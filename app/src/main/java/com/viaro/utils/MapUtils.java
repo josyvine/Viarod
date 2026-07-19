@@ -112,4 +112,27 @@ public class MapUtils {
             return "Take a U-Turn";
         }
     }
+
+    /**
+     * Dynamically adjusts raw GPS distances to correct for indoor multi-path drift and offsets.
+     * When devices are side-by-side (raw GPS distance under 18 meters due to indoor limits),
+     * this compresses and scales the displayed distance smoothly down to 0 meters/feet.
+     */
+    public static double getDisplayDistance(double rawDistance) {
+        if (rawDistance <= 4.0) {
+            // Highly likely side-by-side / same spot. Show 0.1 meters.
+            return 0.1;
+        } else if (rawDistance <= 6.0) {
+            // Smoothly transition between 0.1 and 0.3 meters.
+            double t = (rawDistance - 4.0) / 2.0;
+            return 0.1 + 0.2 * t;
+        } else if (rawDistance <= 18.0) {
+            // Quadratic ease-in interpolation to transition from 0.3 meters to 18.0 meters.
+            double t = (rawDistance - 6.0) / 12.0;
+            return 0.3 + 17.7 * Math.pow(t, 2.0);
+        } else {
+            // Standard outdoor/unaffected distance
+            return rawDistance;
+        }
+    }
 }

@@ -174,6 +174,7 @@ public class MeetMapActivity extends AppCompatActivity {
 
                     // 5. Update UI distance and directions locally if friend marker exists
                     if (mFriendMarker != null) {
+                        updateDistanceDisplay(mFriendMarker.getPosition().getLatitude(), mFriendMarker.getPosition().getLongitude());
                         updateNavigationGuidance(location, mFriendMarker.getPosition(), mFriendLastAltitude);
                     }
                 }
@@ -188,6 +189,32 @@ public class MeetMapActivity extends AppCompatActivity {
             );
         } catch (SecurityException ignored) {
         }
+    }
+
+    private void updateDistanceDisplay(double fLat, double fLon) {
+        if (mMyMarker == null || tvDistance == null) return;
+
+        float[] results = new float[1];
+        Location.distanceBetween(
+            mMyMarker.getPosition().getLatitude(), mMyMarker.getPosition().getLongitude(),
+            fLat, fLon,
+            results
+        );
+        float rawDistanceMeters = results[0];
+        double displayDistanceMeters = com.viaro.utils.MapUtils.getDisplayDistance(rawDistanceMeters);
+        double displayDistanceFeet = displayDistanceMeters * 3.28084;
+
+        if (rawDistanceMeters >= 1000) {
+            tvDistance.setText(String.format("Distance: %.2f km", rawDistanceMeters / 1000.0));
+        } else if (displayDistanceMeters <= 0.3) {
+            tvDistance.setText(String.format("Distance: %.1f m (%.1f ft) - Arrived!", displayDistanceMeters, displayDistanceFeet));
+        } else if (displayDistanceMeters < 10.0) {
+            tvDistance.setText(String.format("Distance: %.1f m (%.1f ft)", displayDistanceMeters, displayDistanceFeet));
+        } else {
+            tvDistance.setText(String.format("Distance: %.0f meters", displayDistanceMeters));
+        }
+
+        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "DISTANCE COMPUTED: Raw=" + String.format("%.2f", rawDistanceMeters) + "m, Display=" + String.format("%.2f", displayDistanceMeters) + "m (" + String.format("%.2f", displayDistanceFeet) + " ft)");
     }
 
     private void setupFirebaseListener() {
@@ -225,24 +252,7 @@ public class MeetMapActivity extends AppCompatActivity {
 
                         // Compute great-circle distance
                         if (mMyMarker != null) {
-                            float[] results = new float[1];
-                            Location.distanceBetween(
-                                mMyMarker.getPosition().getLatitude(), mMyMarker.getPosition().getLongitude(),
-                                fLat, fLon,
-                                results
-                            );
-                            float distanceMeters = results[0];
-                            double distanceFeet = distanceMeters * 3.28084;
-
-                            if (distanceMeters >= 1000) {
-                                tvDistance.setText(String.format("Distance: %.2f km", distanceMeters / 1000.0));
-                            } else if (distanceMeters < 10.0) {
-                                tvDistance.setText(String.format("Distance: %.1f m (%.1f ft)", distanceMeters, distanceFeet));
-                            } else {
-                                tvDistance.setText(String.format("Distance: %.0f meters", distanceMeters));
-                            }
-
-                            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "DISTANCE COMPUTED: " + String.format("%.2f", distanceMeters) + " meters (" + String.format("%.2f", distanceFeet) + " feet)");
+                            updateDistanceDisplay(fLat, fLon);
 
                             // Dynamic guidance update when friend moves
                             Location myMockLoc = new Location("gps");
