@@ -3,7 +3,7 @@ package com.viaro.activities;
 import android.content.Intent;
 import android.os.Bundle;
 import androidx.appcompat.app.AppCompatActivity;
-import com.example.R;
+import com.vineyard.viaro.app.R;
 
 public class MainActivity extends AppCompatActivity {
 

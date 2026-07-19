@@ -8,7 +8,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
-import com.example.R;
+import com.vineyard.viaro.app.R;
 import com.viaro.utils.RoomCodeGenerator;
 
 public class MeetSetupActivity extends AppCompatActivity {

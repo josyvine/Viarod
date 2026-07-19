@@ -10,11 +10,11 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.vineyard.viaro.app"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.example"
+    applicationId = "com.vineyard.viaro.app"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
@@ -28,8 +28,7 @@ android {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      // Read the alias dynamically from the environment, defaulting to the correct "viaro" alias
-      keyAlias = System.getenv("KEY_ALIAS") ?: "viaro"
+      keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {

@@ -8,7 +8,7 @@ import android.widget.Button;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import com.example.R;
+import com.vineyard.viaro.app.R;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
 public class MyBottomSheetFragment extends BottomSheetDialogFragment {

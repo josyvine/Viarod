@@ -7,7 +7,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-import com.example.R;
+import com.vineyard.viaro.app.R;
 import com.viaro.listeners.OnNavClickListener;
 import com.viaro.models.HorizontalNavItem;
 import java.util.List;

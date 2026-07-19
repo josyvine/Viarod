@@ -5,7 +5,7 @@ import android.os.Bundle;
 import android.widget.EditText;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
-import com.example.R;
+import com.vineyard.viaro.app.R;
 import com.viaro.utils.PermissionHelper;
 import java.util.UUID;
 

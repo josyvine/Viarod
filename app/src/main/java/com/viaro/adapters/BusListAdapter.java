@@ -6,7 +6,7 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-import com.example.R;
+import com.vineyard.viaro.app.R;
 import com.viaro.listeners.OnBusClickListener;
 import com.viaro.models.BusModel;
 import java.util.List;
