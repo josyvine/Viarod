@@ -82,6 +82,9 @@ public class MeetMapActivity extends AppCompatActivity {
 
         findViewById(R.id.btn_end_meet).setOnClickListener(v -> endMeetup());
 
+        com.viaro.utils.LogReporter.init(this);
+        com.viaro.utils.LogReporter.log(this, "Session started. Room: " + roomCode + ", Role: " + role + ", My ID: " + myId + ", Friend ID: " + friendId);
+
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         setupLocationUpdates();
 
@@ -95,41 +98,61 @@ public class MeetMapActivity extends AppCompatActivity {
             public void onLocationResult(LocationResult locationResult) {
                 if (locationResult == null) return;
                 for (Location location : locationResult.getLocations()) {
-                    // 1. Accuracy and Age Filter (Glitch 1)
-                    if (location.hasAccuracy() && location.getAccuracy() > 30.0f) {
-                        continue; // Skip inaccurate fixes
-                    }
+                    double lat = location.getLatitude();
+                    double lon = location.getLongitude();
+                    double alt = location.hasAltitude() ? location.getAltitude() : 0.0;
+                    float acc = location.hasAccuracy() ? location.getAccuracy() : 999.0f;
                     long ageMs = (android.os.SystemClock.elapsedRealtimeNanos() - location.getElapsedRealtimeNanos()) / 1_000_000L;
+
+                    com.viaro.utils.LogReporter.log(MeetMapActivity.this, "RAW LOCATION RECEIVED: Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt + ", Accuracy=" + acc + "m, Age=" + ageMs + "ms");
+
+                    // 1. Accuracy and Age Filter (Glitch 1)
+                    if (location.hasAccuracy() && acc > 30.0f) {
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Low accuracy (" + acc + "m > 30m)");
+                        continue;
+                    }
                     if (ageMs > 15000L) {
-                        continue; // Skip stale location updates
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Stale update (" + ageMs + "ms > 15000ms)");
+                        continue;
                     }
 
-                    GeoPoint myPos = new GeoPoint(location.getLatitude(), location.getLongitude());
+                    GeoPoint myPos = new GeoPoint(lat, lon);
 
-                    // 2. Displacement/Drift Filter (Glitch 3)
-                    if (!mMyPath.isEmpty()) {
+                    // 2. Separate Live Upload from Breadcrumb Drawing (Glitch 3 & Distance Fix)
+                    boolean shouldAddBreadcrumb = false;
+                    float displacement = 0.0f;
+                    if (mMyPath.isEmpty()) {
+                        shouldAddBreadcrumb = true;
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB PATH STARTED: First point added.");
+                    } else {
                         GeoPoint lastPoint = mMyPath.get(mMyPath.size() - 1);
                         float[] results = new float[1];
                         Location.distanceBetween(
                             lastPoint.getLatitude(), lastPoint.getLongitude(),
-                            location.getLatitude(), location.getLongitude(),
+                            lat, lon,
                             results
                         );
-                        if (results[0] < 4.0f) {
-                            // Suppress uploading/appending drift, but update local UI / directions smoothly
-                            if (mMyMarker != null) {
-                                mMyMarker.setPosition(myPos);
-                                if (mFriendMarker != null) {
-                                    updateNavigationGuidance(location, mFriendMarker.getPosition(), mFriendLastAltitude);
-                                }
-                            }
-                            continue;
+                        displacement = results[0];
+                        if (displacement >= 4.0f) {
+                            shouldAddBreadcrumb = true;
+                            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB ADDED: Moved " + String.format("%.2f", displacement) + "m >= 4.0m threshold.");
+                        } else {
+                            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB SUPPRESSED (DRIFT FILTER): Moved " + String.format("%.2f", displacement) + "m < 4.0m threshold.");
                         }
                     }
 
-                    mMyPath.add(myPos);
+                    if (shouldAddBreadcrumb) {
+                        mMyPath.add(myPos);
+                        if (mBreadcrumbPolyline == null) {
+                            mBreadcrumbPolyline = new Polyline();
+                            mBreadcrumbPolyline.setColor(Color.BLUE);
+                            mBreadcrumbPolyline.setWidth(6.0f);
+                            mMapView.getOverlays().add(mBreadcrumbPolyline);
+                        }
+                        mBreadcrumbPolyline.setPoints(mMyPath);
+                    }
 
-                    // Update my marker on map
+                    // 3. ALWAYS update local marker position smoothly
                     if (mMyMarker == null) {
                         mMyMarker = new Marker(mMapView);
                         mMyMarker.setIcon(getResources().getDrawable(R.drawable.ic_person, null));
@@ -140,26 +163,16 @@ public class MeetMapActivity extends AppCompatActivity {
                         mController.animateTo(myPos);
                     }
                     mMyMarker.setPosition(myPos);
-
-                    // Draw breadcrumb trailing line
-                    if (mBreadcrumbPolyline == null) {
-                        mBreadcrumbPolyline = new Polyline();
-                        mBreadcrumbPolyline.setColor(Color.BLUE);
-                        mBreadcrumbPolyline.setWidth(6.0f);
-                        mMapView.getOverlays().add(mBreadcrumbPolyline);
-                    }
-                    mBreadcrumbPolyline.setPoints(mMyPath);
-
                     mMapView.invalidate();
 
-                    // Push coordinates and altitude to Firebase Room node
-                    double myAlt = location.hasAltitude() ? location.getAltitude() : 0.0;
-                    UserLocationModel userLoc = new UserLocationModel(myId, location.getLatitude(), location.getLongitude(), myAlt);
+                    // 4. ALWAYS upload current live coordinate to Firebase (fixes frozen distance!)
+                    UserLocationModel userLoc = new UserLocationModel(myId, lat, lon, alt);
                     if (mRoomRef != null) {
                         mRoomRef.child(myId).setValue(userLoc);
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "LIVE LOCATION PUBLISHED: Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt);
                     }
 
-                    // Update directions if friend's marker exists
+                    // 5. Update UI distance and directions locally if friend marker exists
                     if (mFriendMarker != null) {
                         updateNavigationGuidance(location, mFriendMarker.getPosition(), mFriendLastAltitude);
                     }
@@ -189,9 +202,14 @@ public class MeetMapActivity extends AppCompatActivity {
                 if (friendSnapshot.exists()) {
                     UserLocationModel friendLoc = friendSnapshot.getValue(UserLocationModel.class);
                     if (friendLoc != null) {
-                        GeoPoint friendPos = new GeoPoint(friendLoc.getLatitude(), friendLoc.getLongitude());
-                        mFriendLastAltitude = friendLoc.getAltitude();
+                        double fLat = friendLoc.getLatitude();
+                        double fLon = friendLoc.getLongitude();
+                        double fAlt = friendLoc.getAltitude();
+                        GeoPoint friendPos = new GeoPoint(fLat, fLon);
+                        mFriendLastAltitude = fAlt;
                         mHasFriendAltitude = (mFriendLastAltitude != 0.0);
+
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FRIEND UPDATE RECEIVED: Lat=" + fLat + ", Lon=" + fLon + ", Alt=" + fAlt);
 
                         // Render friend's marker on map
                         if (mFriendMarker == null) {
@@ -210,15 +228,21 @@ public class MeetMapActivity extends AppCompatActivity {
                             float[] results = new float[1];
                             Location.distanceBetween(
                                 mMyMarker.getPosition().getLatitude(), mMyMarker.getPosition().getLongitude(),
-                                friendPos.getLatitude(), friendPos.getLongitude(),
+                                fLat, fLon,
                                 results
                             );
                             float distanceMeters = results[0];
+                            double distanceFeet = distanceMeters * 3.28084;
+
                             if (distanceMeters >= 1000) {
                                 tvDistance.setText(String.format("Distance: %.2f km", distanceMeters / 1000.0));
+                            } else if (distanceMeters < 10.0) {
+                                tvDistance.setText(String.format("Distance: %.1f m (%.1f ft)", distanceMeters, distanceFeet));
                             } else {
                                 tvDistance.setText(String.format("Distance: %.0f meters", distanceMeters));
                             }
+
+                            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "DISTANCE COMPUTED: " + String.format("%.2f", distanceMeters) + " meters (" + String.format("%.2f", distanceFeet) + " feet)");
 
                             // Dynamic guidance update when friend moves
                             Location myMockLoc = new Location("gps");
@@ -235,6 +259,7 @@ public class MeetMapActivity extends AppCompatActivity {
 
             @Override
             public void onCancelled(@NonNull DatabaseError error) {
+                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FIREBASE ERROR: " + error.getMessage());
             }
         };
 
@@ -278,7 +303,10 @@ public class MeetMapActivity extends AppCompatActivity {
             }
         }
 
-        tvGuidance.setText("Directions: " + turnInstruction + elevationInfo);
+        String finalInstruction = "Directions: " + turnInstruction + elevationInfo;
+        tvGuidance.setText(finalInstruction);
+
+        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "GUIDANCE CALC: " + finalInstruction + " [Heading=" + myHeading + "°, TargetBearing=" + targetBearing + "°, MyAlt=" + mMyLastAltitude + ", FriendAlt=" + friendAltitude + "]");
     }
 
     private void endMeetup() {
