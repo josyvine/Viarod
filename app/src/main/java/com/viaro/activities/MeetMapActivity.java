@@ -33,6 +33,8 @@ public class MeetMapActivity extends AppCompatActivity {
     private IMapController mController;
     private Marker mMyMarker, mFriendMarker;
     private Polyline mBreadcrumbPolyline;
+    private Polyline mFriendBreadcrumbPolyline;
+    private final ArrayList<GeoPoint> mFriendPath = new ArrayList<>();
 
     private TextView tvStatus, tvDistance, tvGuidance;
 
@@ -106,39 +108,44 @@ public class MeetMapActivity extends AppCompatActivity {
 
                     com.viaro.utils.LogReporter.log(MeetMapActivity.this, "RAW LOCATION RECEIVED: Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt + ", Accuracy=" + acc + "m, Age=" + ageMs + "ms");
 
-                    // 1. Accuracy and Age Filter (Glitch 1)
-                    if (location.hasAccuracy() && acc > 30.0f) {
-                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Low accuracy (" + acc + "m > 30m)");
+                    // 1. Relaxed Accuracy & Staleness Filters (for indoor testing and reliable distance fixes!)
+                    if (location.hasAccuracy() && acc > 150.0f) {
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Extremely low accuracy (" + acc + "m > 150m)");
                         continue;
                     }
-                    if (ageMs > 15000L) {
-                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Stale update (" + ageMs + "ms > 15000ms)");
+                    if (ageMs > 25000L) {
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Stale update (" + ageMs + "ms > 25000ms)");
                         continue;
                     }
 
                     GeoPoint myPos = new GeoPoint(lat, lon);
 
-                    // 2. Separate Live Upload from Breadcrumb Drawing (Glitch 3 & Distance Fix)
+                    // 2. Separate Live Upload from Breadcrumb Drawing (Accurate Path building filter)
                     boolean shouldAddBreadcrumb = false;
                     float displacement = 0.0f;
-                    if (mMyPath.isEmpty()) {
-                        shouldAddBreadcrumb = true;
-                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB PATH STARTED: First point added.");
-                    } else {
-                        GeoPoint lastPoint = mMyPath.get(mMyPath.size() - 1);
-                        float[] results = new float[1];
-                        Location.distanceBetween(
-                            lastPoint.getLatitude(), lastPoint.getLongitude(),
-                            lat, lon,
-                            results
-                        );
-                        displacement = results[0];
-                        if (displacement >= 4.0f) {
+                    // Only build trails if accuracy is clean (<= 45m) to avoid zig-zag drift lines
+                    if (acc <= 45.0f) {
+                        if (mMyPath.isEmpty()) {
                             shouldAddBreadcrumb = true;
-                            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB ADDED: Moved " + String.format("%.2f", displacement) + "m >= 4.0m threshold.");
+                            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB PATH STARTED: First point added.");
                         } else {
-                            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB SUPPRESSED (DRIFT FILTER): Moved " + String.format("%.2f", displacement) + "m < 4.0m threshold.");
+                            GeoPoint lastPoint = mMyPath.get(mMyPath.size() - 1);
+                            float[] results = new float[1];
+                            Location.distanceBetween(
+                                lastPoint.getLatitude(), lastPoint.getLongitude(),
+                                lat, lon,
+                                results
+                            );
+                            displacement = results[0];
+                            if (displacement >= 4.0f) {
+                                shouldAddBreadcrumb = true;
+                                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB ADDED: Moved " + String.format("%.2f", displacement) + "m >= 4.0m threshold.");
+                            } else {
+                                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB SUPPRESSED (DRIFT FILTER): Moved " + String.format("%.2f", displacement) + "m < 4.0m threshold.");
+                            }
                         }
+                    } else {
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB SUPPRESSED: Accuracy (" + acc + "m) is too low for path building (> 45m).");
                     }
 
                     if (shouldAddBreadcrumb) {
@@ -150,12 +157,20 @@ public class MeetMapActivity extends AppCompatActivity {
                             mMapView.getOverlays().add(mBreadcrumbPolyline);
                         }
                         mBreadcrumbPolyline.setPoints(mMyPath);
+
+                        // Upload the local breadcrumb point to Firebase so the receiver can draw it!
+                        if (mRoomRef != null) {
+                            String ptKey = mRoomRef.child(myId + "_path").push().getKey();
+                            if (ptKey != null) {
+                                mRoomRef.child(myId + "_path").child(ptKey).setValue(new UserLocationModel(myId, lat, lon, alt));
+                            }
+                        }
                     }
 
-                    // 3. ALWAYS update local marker position smoothly
+                    // 3. ALWAYS update local marker position smoothly (Uses ic_location - blue GPS tag!)
                     if (mMyMarker == null) {
                         mMyMarker = new Marker(mMapView);
-                        mMyMarker.setIcon(getResources().getDrawable(R.drawable.ic_person, null));
+                        mMyMarker.setIcon(getResources().getDrawable(R.drawable.ic_location, null));
                         mMyMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
                         mMyMarker.setInfoWindow(null);
                         mMyMarker.setOnMarkerClickListener((marker, mapView1) -> true);
@@ -192,11 +207,26 @@ public class MeetMapActivity extends AppCompatActivity {
     }
 
     private void updateDistanceDisplay(double fLat, double fLon) {
-        if (mMyMarker == null || tvDistance == null) return;
+        if (tvDistance == null) return;
+
+        double myLat = 0.0;
+        double myLon = 0.0;
+        boolean hasMyLoc = false;
+
+        if (mMyMarker != null) {
+            myLat = mMyMarker.getPosition().getLatitude();
+            myLon = mMyMarker.getPosition().getLongitude();
+            hasMyLoc = true;
+        }
+
+        if (!hasMyLoc) {
+            tvDistance.setText("Distance: Waiting for your GPS fix...");
+            return;
+        }
 
         float[] results = new float[1];
         Location.distanceBetween(
-            mMyMarker.getPosition().getLatitude(), mMyMarker.getPosition().getLongitude(),
+            myLat, myLon,
             fLat, fLon,
             results
         );
@@ -238,7 +268,7 @@ public class MeetMapActivity extends AppCompatActivity {
 
                         com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FRIEND UPDATE RECEIVED: Lat=" + fLat + ", Lon=" + fLon + ", Alt=" + fAlt);
 
-                        // Render friend's marker on map
+                        // Render friend's marker on map (Uses custom_marker - red GPS tag!)
                         if (mFriendMarker == null) {
                             mFriendMarker = new Marker(mMapView);
                             mFriendMarker.setIcon(getResources().getDrawable(R.drawable.custom_marker, null));
@@ -246,15 +276,20 @@ public class MeetMapActivity extends AppCompatActivity {
                             mFriendMarker.setInfoWindow(null);
                             mFriendMarker.setOnMarkerClickListener((marker, mapView) -> true);
                             mMapView.getOverlays().add(mFriendMarker);
+
+                            // If local user has no fix yet, animate map to friend's position so it is visible!
+                            if (mMyMarker == null) {
+                                mController.animateTo(friendPos);
+                            }
                         }
                         mFriendMarker.setPosition(friendPos);
                         mMapView.invalidate();
 
-                        // Compute great-circle distance
-                        if (mMyMarker != null) {
-                            updateDistanceDisplay(fLat, fLon);
+                        // Compute distance even if local fix hasn't registered a full marker yet
+                        updateDistanceDisplay(fLat, fLon);
 
-                            // Dynamic guidance update when friend moves
+                        // Dynamic guidance update when friend moves
+                        if (mMyMarker != null) {
                             Location myMockLoc = new Location("gps");
                             myMockLoc.setLatitude(mMyMarker.getPosition().getLatitude());
                             myMockLoc.setLongitude(mMyMarker.getPosition().getLongitude());
@@ -263,6 +298,28 @@ public class MeetMapActivity extends AppCompatActivity {
                             }
                             updateNavigationGuidance(myMockLoc, friendPos, mFriendLastAltitude);
                         }
+                    }
+                }
+
+                // Listen and render friend's breadcrumb trail so blue lines show on both phones!
+                DataSnapshot friendPathSnapshot = snapshot.child(friendId + "_path");
+                if (friendPathSnapshot.exists()) {
+                    mFriendPath.clear();
+                    for (DataSnapshot ptSnap : friendPathSnapshot.getChildren()) {
+                        UserLocationModel pt = ptSnap.getValue(UserLocationModel.class);
+                        if (pt != null) {
+                            mFriendPath.add(new GeoPoint(pt.getLatitude(), pt.getLongitude()));
+                        }
+                    }
+                    if (!mFriendPath.isEmpty()) {
+                        if (mFriendBreadcrumbPolyline == null) {
+                            mFriendBreadcrumbPolyline = new Polyline();
+                            mFriendBreadcrumbPolyline.setColor(Color.BLUE);
+                            mFriendBreadcrumbPolyline.setWidth(6.0f);
+                            mMapView.getOverlays().add(mFriendBreadcrumbPolyline);
+                        }
+                        mFriendBreadcrumbPolyline.setPoints(mFriendPath);
+                        mMapView.invalidate();
                     }
                 }
             }
