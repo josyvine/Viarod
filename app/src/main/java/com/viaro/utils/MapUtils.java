@@ -92,4 +92,24 @@ public class MapUtils {
             }
         });
     }
+
+    /**
+     * Takes the bearing angle of Device A (user's heading) and the target bearing to Device B,
+     * and returns a semantic directional instruction based on the angular difference.
+     */
+    public static String getDirectionInstruction(float myBearing, float targetBearing) {
+        float diff = (targetBearing - myBearing + 360) % 360;
+        if (diff > 180) {
+            diff -= 360;
+        }
+        if (Math.abs(diff) <= 45) {
+            return "Go Straight";
+        } else if (diff > 45 && diff <= 135) {
+            return "Turn Right";
+        } else if (diff < -45 && diff >= -135) {
+            return "Turn Left";
+        } else {
+            return "Take a U-Turn";
+        }
+    }
 }

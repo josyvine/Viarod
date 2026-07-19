@@ -4,6 +4,7 @@ public class UserLocationModel {
     private String userId;
     private double latitude;
     private double longitude;
+    private double altitude;
     private long lastUpdated;
 
     public UserLocationModel() {
@@ -14,6 +15,15 @@ public class UserLocationModel {
         this.userId = userId;
         this.latitude = latitude;
         this.longitude = longitude;
+        this.altitude = 0.0;
+        this.lastUpdated = System.currentTimeMillis();
+    }
+
+    public UserLocationModel(String userId, double latitude, double longitude, double altitude) {
+        this.userId = userId;
+        this.latitude = latitude;
+        this.longitude = longitude;
+        this.altitude = altitude;
         this.lastUpdated = System.currentTimeMillis();
     }
 
@@ -25,6 +35,9 @@ public class UserLocationModel {
 
     public double getLongitude() { return longitude; }
     public void setLongitude(double longitude) { this.longitude = longitude; }
+
+    public double getAltitude() { return altitude; }
+    public void setAltitude(double altitude) { this.altitude = altitude; }
 
     public long getLastUpdated() { return lastUpdated; }
     public void setLastUpdated(long lastUpdated) { this.lastUpdated = lastUpdated; }

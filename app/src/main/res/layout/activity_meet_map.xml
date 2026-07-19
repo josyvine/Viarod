@@ -44,6 +44,17 @@
                 android:layout_marginTop="6dp"/>
 
             <TextView
+                android:id="@+id/tv_meet_guidance"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Directions: Waiting for signal..."
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/primary"
+                android:layout_marginTop="6dp"
+                android:gravity="center"/>
+
+            <TextView
                 android:id="@+id/tv_meet_breadcrumb"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

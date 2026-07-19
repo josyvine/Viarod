@@ -23,7 +23,8 @@ public class LocationHelper {
     public static LocationRequest createLocationRequest() {
         return new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
                 .setMinUpdateIntervalMillis(2000)
-                .setWaitForAccurateLocation(false)
+                .setWaitForAccurateLocation(true)
+                .setMinUpdateDistanceMeters(3.0f)
                 .build();
     }
 }

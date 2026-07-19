@@ -34,7 +34,7 @@ public class MeetMapActivity extends AppCompatActivity {
     private Marker mMyMarker, mFriendMarker;
     private Polyline mBreadcrumbPolyline;
 
-    private TextView tvStatus, tvDistance;
+    private TextView tvStatus, tvDistance, tvGuidance;
 
     private String roomCode, role, myId, friendId;
     private DatabaseReference mRoomRef;
@@ -44,6 +44,12 @@ public class MeetMapActivity extends AppCompatActivity {
     private LocationCallback mLocationCallback;
 
     private final ArrayList<GeoPoint> mMyPath = new ArrayList<>();
+
+    private double mMyLastAltitude = 0.0;
+    private boolean mHasMyAltitude = false;
+    private double mFriendLastAltitude = 0.0;
+    private boolean mHasFriendAltitude = false;
+    private float mMyLastHeading = 0.0f;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,6 +76,7 @@ public class MeetMapActivity extends AppCompatActivity {
 
         tvStatus = findViewById(R.id.tv_meet_status);
         tvDistance = findViewById(R.id.tv_meet_distance);
+        tvGuidance = findViewById(R.id.tv_meet_guidance);
 
         tvStatus.setText("Room Code: " + roomCode + " (Role: " + role + ")");
 
@@ -88,7 +95,38 @@ public class MeetMapActivity extends AppCompatActivity {
             public void onLocationResult(LocationResult locationResult) {
                 if (locationResult == null) return;
                 for (Location location : locationResult.getLocations()) {
+                    // 1. Accuracy and Age Filter (Glitch 1)
+                    if (location.hasAccuracy() && location.getAccuracy() > 30.0f) {
+                        continue; // Skip inaccurate fixes
+                    }
+                    long ageMs = (android.os.SystemClock.elapsedRealtimeNanos() - location.getElapsedRealtimeNanos()) / 1_000_000L;
+                    if (ageMs > 15000L) {
+                        continue; // Skip stale location updates
+                    }
+
                     GeoPoint myPos = new GeoPoint(location.getLatitude(), location.getLongitude());
+
+                    // 2. Displacement/Drift Filter (Glitch 3)
+                    if (!mMyPath.isEmpty()) {
+                        GeoPoint lastPoint = mMyPath.get(mMyPath.size() - 1);
+                        float[] results = new float[1];
+                        Location.distanceBetween(
+                            lastPoint.getLatitude(), lastPoint.getLongitude(),
+                            location.getLatitude(), location.getLongitude(),
+                            results
+                        );
+                        if (results[0] < 4.0f) {
+                            // Suppress uploading/appending drift, but update local UI / directions smoothly
+                            if (mMyMarker != null) {
+                                mMyMarker.setPosition(myPos);
+                                if (mFriendMarker != null) {
+                                    updateNavigationGuidance(location, mFriendMarker.getPosition(), mFriendLastAltitude);
+                                }
+                            }
+                            continue;
+                        }
+                    }
+
                     mMyPath.add(myPos);
 
                     // Update my marker on map
@@ -96,6 +134,8 @@ public class MeetMapActivity extends AppCompatActivity {
                         mMyMarker = new Marker(mMapView);
                         mMyMarker.setIcon(getResources().getDrawable(R.drawable.ic_person, null));
                         mMyMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
+                        mMyMarker.setInfoWindow(null);
+                        mMyMarker.setOnMarkerClickListener((marker, mapView1) -> true);
                         mMapView.getOverlays().add(mMyMarker);
                         mController.animateTo(myPos);
                     }
@@ -112,10 +152,16 @@ public class MeetMapActivity extends AppCompatActivity {
 
                     mMapView.invalidate();
 
-                    // Push coordinates to Firebase Room node
-                    UserLocationModel userLoc = new UserLocationModel(myId, location.getLatitude(), location.getLongitude());
+                    // Push coordinates and altitude to Firebase Room node
+                    double myAlt = location.hasAltitude() ? location.getAltitude() : 0.0;
+                    UserLocationModel userLoc = new UserLocationModel(myId, location.getLatitude(), location.getLongitude(), myAlt);
                     if (mRoomRef != null) {
                         mRoomRef.child(myId).setValue(userLoc);
+                    }
+
+                    // Update directions if friend's marker exists
+                    if (mFriendMarker != null) {
+                        updateNavigationGuidance(location, mFriendMarker.getPosition(), mFriendLastAltitude);
                     }
                 }
             }
@@ -144,12 +190,16 @@ public class MeetMapActivity extends AppCompatActivity {
                     UserLocationModel friendLoc = friendSnapshot.getValue(UserLocationModel.class);
                     if (friendLoc != null) {
                         GeoPoint friendPos = new GeoPoint(friendLoc.getLatitude(), friendLoc.getLongitude());
+                        mFriendLastAltitude = friendLoc.getAltitude();
+                        mHasFriendAltitude = (mFriendLastAltitude != 0.0);
 
                         // Render friend's marker on map
                         if (mFriendMarker == null) {
                             mFriendMarker = new Marker(mMapView);
                             mFriendMarker.setIcon(getResources().getDrawable(R.drawable.custom_marker, null));
                             mFriendMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
+                            mFriendMarker.setInfoWindow(null);
+                            mFriendMarker.setOnMarkerClickListener((marker, mapView) -> true);
                             mMapView.getOverlays().add(mFriendMarker);
                         }
                         mFriendMarker.setPosition(friendPos);
@@ -169,6 +219,15 @@ public class MeetMapActivity extends AppCompatActivity {
                             } else {
                                 tvDistance.setText(String.format("Distance: %.0f meters", distanceMeters));
                             }
+
+                            // Dynamic guidance update when friend moves
+                            Location myMockLoc = new Location("gps");
+                            myMockLoc.setLatitude(mMyMarker.getPosition().getLatitude());
+                            myMockLoc.setLongitude(mMyMarker.getPosition().getLongitude());
+                            if (mHasMyAltitude) {
+                                myMockLoc.setAltitude(mMyLastAltitude);
+                            }
+                            updateNavigationGuidance(myMockLoc, friendPos, mFriendLastAltitude);
                         }
                     }
                 }
@@ -180,6 +239,46 @@ public class MeetMapActivity extends AppCompatActivity {
         };
 
         mRoomRef.addValueEventListener(mRoomListener);
+    }
+
+    private void updateNavigationGuidance(Location myLocation, GeoPoint friendPos, double friendAltitude) {
+        if (myLocation == null || friendPos == null || tvGuidance == null) return;
+
+        GeoPoint myPos = new GeoPoint(myLocation.getLatitude(), myLocation.getLongitude());
+
+        // 1. Calculate relative turn instruction
+        float myHeading = mMyLastHeading;
+        if (myLocation.hasBearing()) {
+            myHeading = myLocation.getBearing();
+            mMyLastHeading = myHeading;
+        } else if (mMyPath.size() >= 2) {
+            GeoPoint prev = mMyPath.get(mMyPath.size() - 2);
+            myHeading = com.viaro.utils.MapUtils.calculateBearing(prev, myPos);
+            mMyLastHeading = myHeading;
+        }
+
+        float targetBearing = com.viaro.utils.MapUtils.calculateBearing(myPos, friendPos);
+        String turnInstruction = com.viaro.utils.MapUtils.getDirectionInstruction(myHeading, targetBearing);
+
+        // 2. Track altitude differences for indoor vertical elevation changes (Glitch 4)
+        String elevationInfo = "";
+        if (myLocation.hasAltitude()) {
+            mMyLastAltitude = myLocation.getAltitude();
+            mHasMyAltitude = true;
+        }
+
+        if (mHasMyAltitude && friendAltitude != 0.0) {
+            double altDiff = friendAltitude - mMyLastAltitude;
+            if (altDiff > 1.5) {
+                elevationInfo = " (Friend is upstairs)";
+            } else if (altDiff < -1.5) {
+                elevationInfo = " (Friend is downstairs)";
+            } else {
+                elevationInfo = " (Same floor)";
+            }
+        }
+
+        tvGuidance.setText("Directions: " + turnInstruction + elevationInfo);
     }
 
     private void endMeetup() {
