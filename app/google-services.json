@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "779644215242",
+    "firebase_url": "https://viaro-67882-default-rtdb.firebaseio.com",
+    "project_id": "viaro-67882",
+    "storage_bucket": "viaro-67882.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:779644215242:android:46611547f0b73ebbb6f933",
+        "android_client_info": {
+          "package_name": "com.vineyard.viaro.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDLrWX3MiCy_SUvPKPNV7sIKteeND4rhxE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
