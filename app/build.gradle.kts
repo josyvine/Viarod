@@ -10,10 +10,12 @@ plugins {
 }
 
 android {
+  // Your updated namespace
   namespace = "com.vineyard.viaro.app"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
+    // Your updated Package Name for Firebase
     applicationId = "com.vineyard.viaro.app"
     minSdk = 24
     targetSdk = 36
@@ -28,7 +30,8 @@ android {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
+      // KEPT ALIAS FIX: Correctly maps to "viaro" dynamically
+      keyAlias = System.getenv("KEY_ALIAS") ?: "viaro"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
@@ -114,7 +117,7 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.play.services.location)
   implementation(libs.retrofit)
-  
+
   // Viaro OSM/Firebase Dependencies
   implementation(libs.osmdroid)
   implementation(libs.firebase.database)
