@@ -356,6 +356,18 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
         findViewById(R.id.btn_end_meet).setOnClickListener(v -> endMeetup());
 
+        findViewById(R.id.btn_my_location).setOnClickListener(v -> {
+            if (mMyMarker != null) {
+                mController.animateTo(mMyMarker.getPosition());
+                mController.setZoom(17.5);
+            } else if (mLastAcceptedLocation != null) {
+                mController.animateTo(new GeoPoint(mLastAcceptedLocation.getLatitude(), mLastAcceptedLocation.getLongitude()));
+                mController.setZoom(17.5);
+            } else {
+                android.widget.Toast.makeText(this, "Acquiring GPS location...", android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+
         com.viaro.utils.LogReporter.init(this);
         com.viaro.utils.LogReporter.log(this, "Session started. Room: " + roomCode + ", Role: " + role + ", My ID: " + myId + ", Friend ID: " + friendId);
 
