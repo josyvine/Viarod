@@ -83,7 +83,7 @@ public class LocationHelper {
     /**
      * Dual-Engine Location Update Registration:
      * Tries GMS FusedLocationProviderClient first.
-     * Always registers Native LocationManager (GPS_PROVIDER and NETWORK_PROVIDER) as backup / non-GMS fallback.
+     * Registers Native LocationManager as backup / non-GMS fallback ONLY if GMS is unavailable or fails.
      */
     @SuppressLint("MissingPermission")
     public static void startDualEngineLocationUpdates(
@@ -104,11 +104,9 @@ public class LocationHelper {
                 startNativeLocationUpdates(context, nativeListener, looper);
             }
         } else {
+            // 2. Fall back to native framework listener if GMS is unavailable
             startNativeLocationUpdates(context, nativeListener, looper);
         }
-
-        // 2. Always enable native framework listener for non-GMS / Huawei / weak GPS redundancy
-        startNativeLocationUpdates(context, nativeListener, looper);
     }
 
     @SuppressLint("MissingPermission")
