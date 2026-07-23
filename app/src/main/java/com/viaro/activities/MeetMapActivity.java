@@ -89,15 +89,15 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     private long mLastMyGpsUpdateTimeMs = 0;
     private long mLastFriendGpsUpdateTimeMs = 0;
     
-    private float mMySpeedMs = 0.0f;
-    private float mMyHeading = 0.0f;
-    private float mFriendSpeedMs = 0.0f;
-    private float mFriendHeading = 0.0f;
-    private float mLastFriendGpsAccuracy = 0.0f;
+    private double mMySpeedMs = 0.0;
+    private double mMyHeading = 0.0;
+    private double mFriendSpeedMs = 0.0;
+    private double mFriendHeading = 0.0;
+    private double mLastFriendGpsAccuracy = 0.0;
 
     // Last accepted location for drift filtering
     private Location mLastAcceptedLocation = null;
-    private float mLastUploadedHeading = 0.0f;
+    private double mLastUploadedHeading = 0.0;
 
     // Marker active animators to prevent concurrent conflicts
     private final java.util.Map<Marker, ValueAnimator> mMarkerAnimators = new java.util.HashMap<>();
@@ -119,7 +119,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             this.lastTimeMs = 0;
         }
 
-        public GeoPoint filter(double newLat, double newLon, float accuracyMeters, long timeMs) {
+        public GeoPoint filter(double newLat, double newLon, double accuracyMeters, long timeMs) {
             if (variance < 0) {
                 this.lat = newLat;
                 this.lon = newLon;
@@ -221,8 +221,8 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         animator.start();
     }
 
-    private GeoPoint predictNextPosition(GeoPoint current, float speedMs, float bearingDegrees, double dtSeconds) {
-        if (speedMs <= 0.1f) return current;
+    private GeoPoint predictNextPosition(GeoPoint current, double speedMs, double bearingDegrees, double dtSeconds) {
+        if (speedMs <= 0.1) return current;
         
         double R = 6371000.0; // Earth radius in meters
         double bearingRad = Math.toRadians(bearingDegrees);
@@ -293,6 +293,13 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         Canvas canvas = new Canvas(bitmap);
         drawable.setBounds(0, 0, width, height);
         drawable.draw(canvas);
+
+        if (drawableId == R.drawable.ic_location) {
+            Paint whitePaint = new Paint();
+            whitePaint.setColor(Color.WHITE);
+            whitePaint.setAntiAlias(true);
+            canvas.drawCircle(width * 0.5f, height * 0.375f, width * 0.13f, whitePaint);
+        }
 
         Paint paint = new Paint();
         paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
@@ -409,11 +416,11 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
                 mCurrentCompassHeading = smoothHeading(mCurrentCompassHeading, headingDegrees);
                 
                 // Update heading if device is nearly standing still
-                if (mMySpeedMs < 1.0f) {
+                if (mMySpeedMs < 1.0) {
                     mMyHeading = mCurrentCompassHeading;
                     if (mMyMarker != null) {
-                        mMyMarker.setRotation(360f - mMyHeading);
-                        rotateMapSmoothly(mMyHeading);
+                        mMyMarker.setRotation((float) (360.0 - mMyHeading));
+                        rotateMapSmoothly((float) mMyHeading);
                     }
                 }
             }
@@ -474,10 +481,11 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             getMainLooper()
         );
 
-        // Immediate last known location fix for fast cold start
+        // Immediate last known location fix for fast cold start (isolate from handleRawLocation tracking filter)
         Location lastKnown = LocationHelper.getLastKnownLocation(this, mFusedLocationClient);
         if (lastKnown != null) {
-            handleRawLocation(lastKnown);
+            GeoPoint lastKnownPoint = new GeoPoint(lastKnown.getLatitude(), lastKnown.getLongitude());
+            mController.setCenter(lastKnownPoint);
         }
     }
 
@@ -487,17 +495,17 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         double lat = location.getLatitude();
         double lon = location.getLongitude();
         double alt = location.hasAltitude() ? location.getAltitude() : 0.0;
-        float acc = location.hasAccuracy() ? location.getAccuracy() : 999.0f;
+        double acc = location.hasAccuracy() ? location.getAccuracy() : 999.0;
 
         com.viaro.utils.LogReporter.log(MeetMapActivity.this, "RAW LOCATION RECEIVED: Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt + ", Accuracy=" + acc + "m");
 
         // Relaxed filters for cold start vs ongoing updates
         if (mLastAcceptedLocation == null) {
-            if (acc > 80.0f) {
+            if (acc > 80.0) {
                 return;
             }
         } else {
-            if (acc > 50.0f) {
+            if (acc > 50.0) {
                 com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Low accuracy (" + acc + "m > 50m)");
                 return;
             }
@@ -511,11 +519,14 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             float distance = distResults[0];
             long timeDiffMs = location.getTime() - mLastAcceptedLocation.getTime();
             if (timeDiffMs > 0) {
-                double speedMs = distance / (timeDiffMs / 1000.0);
-                double speedKmh = speedMs * 3.6;
-                if (speedKmh > 300.0) {
-                    com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Impossible jump speed = " + speedKmh + " km/h");
-                    return;
+                // Ensure we only validate speed jumps if the time update is not an instantaneous/rapid double firing
+                if (timeDiffMs >= 1000) {
+                    double speedMs = distance / (timeDiffMs / 1000.0);
+                    double speedKmh = speedMs * 3.6;
+                    if (speedKmh > 300.0) {
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Impossible jump speed = " + speedKmh + " km/h");
+                        return;
+                    }
                 }
             }
         }
@@ -527,10 +538,10 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         final GeoPoint kalmanPoint = mMyKalmanFilter.filter(lat, lon, acc, mLastMyGpsUpdateTimeMs);
 
         // Update local speed and heading variables
-        mMySpeedMs = location.hasSpeed() ? location.getSpeed() : 0.0f;
+        mMySpeedMs = location.hasSpeed() ? location.getSpeed() : 0.0;
         if (location.hasBearing()) {
             mMyHeading = location.getBearing();
-        } else if (mMySpeedMs < 1.0f) {
+        } else if (mMySpeedMs < 1.0) {
             mMyHeading = mCurrentCompassHeading;
         }
 
@@ -547,14 +558,14 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         double lat = snappedPoint.getLatitude();
         double lon = snappedPoint.getLongitude();
         double alt = location.hasAltitude() ? location.getAltitude() : 0.0;
-        float acc = location.hasAccuracy() ? location.getAccuracy() : 10.0f;
+        double acc = location.hasAccuracy() ? location.getAccuracy() : 10.0;
 
         GeoPoint oldPos = (mMyMarker != null) ? mMyMarker.getPosition() : null;
 
         boolean shouldAddBreadcrumb = false;
         float displacement = 0.0f;
 
-        if (acc <= 75.0f) {
+        if (acc <= 75.0) {
             if (mMyPath.isEmpty()) {
                 shouldAddBreadcrumb = true;
                 com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB PATH STARTED: First point added.");
@@ -622,8 +633,8 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
                     roleLabel,
                     myId,
                     marker.getPosition(),
-                    mMySpeedMs,
-                    mMyHeading,
+                    (float) mMySpeedMs,
+                    (float) mMyHeading,
                     mMyLastAltitude,
                     mLastAcceptedLocation != null ? mLastAcceptedLocation.getAccuracy() : 0.0f,
                     mLastMyGpsUpdateTimeMs
@@ -637,12 +648,12 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             animateMarkerSmoothly(mMyMarker, oldPos != null ? oldPos : mMyMarker.getPosition(), snappedPoint, 800);
         }
 
-        mMyMarker.setRotation(360f - mMyHeading);
+        mMyMarker.setRotation((float) (360.0 - mMyHeading));
 
         // Camera follow behavior
-        GeoPoint cameraTarget = calculateCameraTarget(snappedPoint, mMyHeading);
+        GeoPoint cameraTarget = calculateCameraTarget(snappedPoint, (float) mMyHeading);
         mController.animateTo(cameraTarget);
-        rotateMapSmoothly(mMyHeading);
+        rotateMapSmoothly((float) mMyHeading);
 
         // ALWAYS publish live location to Firebase on every GPS fix
         mLastUploadedHeading = mMyHeading;
@@ -651,8 +662,8 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             lat,
             lon,
             alt,
-            location.hasBearing() ? location.getBearing() : 0.0f,
-            location.hasSpeed() ? location.getSpeed() : 0.0f,
+            location.hasBearing() ? (double) location.getBearing() : 0.0,
+            location.hasSpeed() ? (double) location.getSpeed() : 0.0,
             acc,
             System.currentTimeMillis(),
             mMyHeading,
@@ -683,10 +694,10 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
                     roleLabel,
                     friendId,
                     marker.getPosition(),
-                    mFriendSpeedMs,
-                    mFriendHeading,
+                    (float) mFriendSpeedMs,
+                    (float) mFriendHeading,
                     mFriendLastAltitude,
-                    mLastFriendGpsAccuracy,
+                    (float) mLastFriendGpsAccuracy,
                     mLastFriendGpsUpdateTimeMs
                 );
                 return true;
@@ -702,7 +713,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             animateMarkerSmoothly(mFriendMarker, start, friendSnappedPos, 1000);
         }
 
-        mFriendMarker.setRotation(360f - mFriendHeading);
+        mFriendMarker.setRotation((float) (360.0 - mFriendHeading));
         mMapView.invalidate();
 
         updateDistanceDisplay(friendSnappedPos.getLatitude(), friendSnappedPos.getLongitude());
@@ -897,9 +908,9 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
                         mLastFriendGpsUpdateTimeMs = System.currentTimeMillis();
                         mFriendSpeedMs = friendLoc.getSpeed();
-                        mFriendHeading = friendLoc.getHeading() != 0.0f ? friendLoc.getHeading() : friendLoc.getBearing();
+                        mFriendHeading = friendLoc.getHeading() != 0.0 ? friendLoc.getHeading() : friendLoc.getBearing();
 
-                        float friendAcc = friendLoc.getAccuracy() > 0 ? friendLoc.getAccuracy() : 15.0f;
+                        double friendAcc = friendLoc.getAccuracy() > 0 ? friendLoc.getAccuracy() : 15.0;
                         mLastFriendGpsAccuracy = friendAcc;
 
                         GeoPoint friendFilteredPos = mFriendKalmanFilter.filter(fLat, fLon, friendAcc, mLastFriendGpsUpdateTimeMs);
