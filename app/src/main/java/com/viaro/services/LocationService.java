@@ -8,9 +8,12 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.location.Location;
+import android.location.LocationListener;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PowerManager;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import com.vineyard.viaro.app.R;
@@ -27,6 +30,7 @@ public class LocationService extends Service {
 
     private FusedLocationProviderClient mFusedLocationClient;
     private LocationCallback mLocationCallback;
+    private LocationListener mNativeLocationListener;
     private PowerManager.WakeLock mWakeLock;
     
     private String busId;
@@ -49,6 +53,22 @@ public class LocationService extends Service {
             }
         };
 
+        mNativeLocationListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(@NonNull Location location) {
+                updateFirebase(location);
+            }
+
+            @Override
+            public void onStatusChanged(String provider, int status, Bundle extras) {}
+
+            @Override
+            public void onProviderEnabled(@NonNull String provider) {}
+
+            @Override
+            public void onProviderDisabled(@NonNull String provider) {}
+        };
+
         // Acquire a partial wake lock to keep the CPU running
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (pm != null) {
@@ -58,6 +78,9 @@ public class LocationService extends Service {
     }
 
     private void updateFirebase(Location location) {
+        if (location == null) return;
+
+        // Fetch last known if available for immediate update
         if (busId == null) return;
         
         double speedKmh = location.getSpeed() * 3.6; // Convert m/s to km/h
@@ -112,13 +135,18 @@ public class LocationService extends Service {
     }
 
     private void startLocationUpdates() {
-        try {
-            mFusedLocationClient.requestLocationUpdates(
-                LocationHelper.createLocationRequest(),
-                mLocationCallback,
-                getMainLooper()
-            );
-        } catch (SecurityException ignored) {
+        LocationHelper.startDualEngineLocationUpdates(
+            this,
+            mFusedLocationClient,
+            mLocationCallback,
+            mNativeLocationListener,
+            getMainLooper()
+        );
+
+        // Immediate last known location fix to avoid cold start delay
+        Location lastLoc = LocationHelper.getLastKnownLocation(this, mFusedLocationClient);
+        if (lastLoc != null) {
+            updateFirebase(lastLoc);
         }
     }
 
@@ -139,9 +167,12 @@ public class LocationService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (mFusedLocationClient != null && mLocationCallback != null) {
-            mFusedLocationClient.removeLocationUpdates(mLocationCallback);
-        }
+        LocationHelper.stopDualEngineLocationUpdates(
+            this,
+            mFusedLocationClient,
+            mLocationCallback,
+            mNativeLocationListener
+        );
         if (mWakeLock != null && mWakeLock.isHeld()) {
             mWakeLock.release();
         }

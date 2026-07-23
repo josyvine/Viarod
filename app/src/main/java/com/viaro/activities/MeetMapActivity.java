@@ -1,9 +1,24 @@
 package com.viaro.activities;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.location.Location;
+import android.location.LocationListener;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -26,20 +41,6 @@ import org.osmdroid.views.MapView;
 import org.osmdroid.views.overlay.Marker;
 import org.osmdroid.views.overlay.Polyline;
 import java.util.ArrayList;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.Rect;
-import android.graphics.Typeface;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
-import android.animation.ValueAnimator;
-import android.os.Handler;
-import android.os.Looper;
 
 public class MeetMapActivity extends AppCompatActivity implements SensorEventListener {
 
@@ -58,6 +59,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
     private FusedLocationProviderClient mFusedLocationClient;
     private LocationCallback mLocationCallback;
+    private LocationListener mNativeLocationListener;
 
     private final ArrayList<GeoPoint> mMyPath = new ArrayList<>();
 
@@ -91,6 +93,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     private float mMyHeading = 0.0f;
     private float mFriendSpeedMs = 0.0f;
     private float mFriendHeading = 0.0f;
+    private float mLastFriendGpsAccuracy = 0.0f;
 
     // Last accepted location for drift filtering
     private Location mLastAcceptedLocation = null;
@@ -255,7 +258,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
                 // Remote friend user prediction
                 if (mFriendMarker != null && mLastFriendGpsUpdateTimeMs > 0) {
                     long elapsed = now - mLastFriendGpsUpdateTimeMs;
-                    if (elapsed > 2500) { // Remote update is delayed (usually Firebase has latency)
+                    if (elapsed > 2500) { // Remote update is delayed
                         double dt = 0.2; // 200ms step
                         GeoPoint current = mFriendMarker.getPosition();
                         GeoPoint predicted = predictNextPosition(current, mFriendSpeedMs, mFriendHeading, dt);
@@ -290,13 +293,6 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         Canvas canvas = new Canvas(bitmap);
         drawable.setBounds(0, 0, width, height);
         drawable.draw(canvas);
-
-        if (drawableId == R.drawable.ic_location) {
-            Paint whitePaint = new Paint();
-            whitePaint.setColor(Color.WHITE);
-            whitePaint.setAntiAlias(true);
-            canvas.drawCircle(width * 0.5f, height * 0.375f, width * 0.13f, whitePaint);
-        }
 
         Paint paint = new Paint();
         paint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
@@ -444,79 +440,107 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     }
 
     private void setupLocationUpdates() {
+        mNativeLocationListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(@NonNull Location location) {
+                handleRawLocation(location);
+            }
+
+            @Override
+            public void onStatusChanged(String provider, int status, Bundle extras) {}
+
+            @Override
+            public void onProviderEnabled(@NonNull String provider) {}
+
+            @Override
+            public void onProviderDisabled(@NonNull String provider) {}
+        };
+
         mLocationCallback = new LocationCallback() {
             @Override
             public void onLocationResult(LocationResult locationResult) {
                 if (locationResult == null) return;
                 for (Location location : locationResult.getLocations()) {
-                    double lat = location.getLatitude();
-                    double lon = location.getLongitude();
-                    double alt = location.hasAltitude() ? location.getAltitude() : 0.0;
-                    float acc = location.hasAccuracy() ? location.getAccuracy() : 999.0f;
-
-                    com.viaro.utils.LogReporter.log(MeetMapActivity.this, "RAW LOCATION RECEIVED: Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt + ", Accuracy=" + acc + "m");
-
-                    // 1. Highly Permissive Filters for Live Updates with high-quality threshold
-                    if (location.hasAccuracy() && acc > 20.0f) {
-                        if (mLastAcceptedLocation != null) {
-                            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Low accuracy (" + acc + "m > 20m) and we have a better fix.");
-                            continue;
-                        }
-                    }
-
-                    // Reject impossible jumps (> 250 km/h)
-                    if (mLastAcceptedLocation != null) {
-                        float[] distResults = new float[1];
-                        Location.distanceBetween(
-                            mLastAcceptedLocation.getLatitude(), mLastAcceptedLocation.getLongitude(),
-                            lat, lon,
-                            distResults
-                        );
-                        float distance = distResults[0];
-                        long timeDiffMs = location.getTime() - mLastAcceptedLocation.getTime();
-                        if (timeDiffMs > 0) {
-                            double speedMs = distance / (timeDiffMs / 1000.0);
-                            double speedKmh = speedMs * 3.6;
-                            if (speedKmh > 250.0) {
-                                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Impossible jump speed = " + speedKmh + " km/h");
-                                continue;
-                            }
-                        }
-                    }
-
-                    mLastAcceptedLocation = location;
-                    mLastMyGpsUpdateTimeMs = System.currentTimeMillis();
-
-                    // Apply 2D Kalman Filter
-                    final GeoPoint kalmanPoint = mMyKalmanFilter.filter(lat, lon, acc, mLastMyGpsUpdateTimeMs);
-
-                    // Update local speed and heading variables
-                    mMySpeedMs = location.hasSpeed() ? location.getSpeed() : 0.0f;
-                    if (location.hasBearing()) {
-                        mMyHeading = location.getBearing();
-                    } else if (mMySpeedMs < 1.0f) {
-                        mMyHeading = mCurrentCompassHeading;
-                    }
-
-                    // Snap to Nearest Road using OSRM Web API async
-                    snapToRoadAsync(kalmanPoint, new RoadSnapCallback() {
-                        @Override
-                        public void onSnapped(GeoPoint snappedPoint) {
-                            processSnappedMyUpdate(snappedPoint, location);
-                        }
-                    });
+                    handleRawLocation(location);
                 }
             }
         };
 
-        try {
-            mFusedLocationClient.requestLocationUpdates(
-                LocationHelper.createLocationRequest(),
-                mLocationCallback,
-                getMainLooper()
-            );
-        } catch (SecurityException ignored) {
+        LocationHelper.startDualEngineLocationUpdates(
+            this,
+            mFusedLocationClient,
+            mLocationCallback,
+            mNativeLocationListener,
+            getMainLooper()
+        );
+
+        // Immediate last known location fix for fast cold start
+        Location lastKnown = LocationHelper.getLastKnownLocation(this, mFusedLocationClient);
+        if (lastKnown != null) {
+            handleRawLocation(lastKnown);
         }
+    }
+
+    private void handleRawLocation(Location location) {
+        if (location == null) return;
+
+        double lat = location.getLatitude();
+        double lon = location.getLongitude();
+        double alt = location.hasAltitude() ? location.getAltitude() : 0.0;
+        float acc = location.hasAccuracy() ? location.getAccuracy() : 999.0f;
+
+        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "RAW LOCATION RECEIVED: Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt + ", Accuracy=" + acc + "m");
+
+        // Relaxed filters for cold start vs ongoing updates
+        if (mLastAcceptedLocation == null) {
+            if (acc > 80.0f) {
+                return;
+            }
+        } else {
+            if (acc > 50.0f) {
+                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Low accuracy (" + acc + "m > 50m)");
+                return;
+            }
+
+            float[] distResults = new float[1];
+            Location.distanceBetween(
+                mLastAcceptedLocation.getLatitude(), mLastAcceptedLocation.getLongitude(),
+                lat, lon,
+                distResults
+            );
+            float distance = distResults[0];
+            long timeDiffMs = location.getTime() - mLastAcceptedLocation.getTime();
+            if (timeDiffMs > 0) {
+                double speedMs = distance / (timeDiffMs / 1000.0);
+                double speedKmh = speedMs * 3.6;
+                if (speedKmh > 300.0) {
+                    com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Impossible jump speed = " + speedKmh + " km/h");
+                    return;
+                }
+            }
+        }
+
+        mLastAcceptedLocation = location;
+        mLastMyGpsUpdateTimeMs = System.currentTimeMillis();
+
+        // Apply 2D Kalman Filter
+        final GeoPoint kalmanPoint = mMyKalmanFilter.filter(lat, lon, acc, mLastMyGpsUpdateTimeMs);
+
+        // Update local speed and heading variables
+        mMySpeedMs = location.hasSpeed() ? location.getSpeed() : 0.0f;
+        if (location.hasBearing()) {
+            mMyHeading = location.getBearing();
+        } else if (mMySpeedMs < 1.0f) {
+            mMyHeading = mCurrentCompassHeading;
+        }
+
+        // Snap to Nearest Road using OSRM Web API async
+        snapToRoadAsync(kalmanPoint, new RoadSnapCallback() {
+            @Override
+            public void onSnapped(GeoPoint snappedPoint) {
+                processSnappedMyUpdate(snappedPoint, location);
+            }
+        });
     }
 
     private void processSnappedMyUpdate(GeoPoint snappedPoint, Location location) {
@@ -527,7 +551,6 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
         GeoPoint oldPos = (mMyMarker != null) ? mMyMarker.getPosition() : null;
 
-        // 2. High-Fidelity Path-Building Logic with Drift and Teleport Filters
         boolean shouldAddBreadcrumb = false;
         float displacement = 0.0f;
 
@@ -579,7 +602,6 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             }
             mBreadcrumbPolyline.setPoints(mMyPath);
 
-            // Upload local breadcrumb point to Firebase
             if (mRoomRef != null) {
                 String ptKey = mRoomRef.child(myId + "_path").push().getKey();
                 if (ptKey != null) {
@@ -588,13 +610,26 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             }
         }
 
-        // 3. ALWAYS update local marker position smoothly with interpolation
+        // ALWAYS update local marker position smoothly
         if (mMyMarker == null) {
             mMyMarker = new Marker(mMapView);
             mMyMarker.setIcon(createLetterMarker(R.drawable.ic_location, myId.equals("user_a") ? "A" : "B"));
             mMyMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
             mMyMarker.setInfoWindow(null);
-            mMyMarker.setOnMarkerClickListener((marker, mapView1) -> true);
+            mMyMarker.setOnMarkerClickListener((marker, mapView1) -> {
+                String roleLabel = "creator".equals(role) ? "Creator (You)" : "Joiner (You)";
+                showLocationDetailsDialog(
+                    roleLabel,
+                    myId,
+                    marker.getPosition(),
+                    mMySpeedMs,
+                    mMyHeading,
+                    mMyLastAltitude,
+                    mLastAcceptedLocation != null ? mLastAcceptedLocation.getAccuracy() : 0.0f,
+                    mLastMyGpsUpdateTimeMs
+                );
+                return true;
+            });
             mMapView.getOverlays().add(mMyMarker);
             mMyMarker.setPosition(snappedPoint);
             mController.animateTo(snappedPoint);
@@ -609,7 +644,6 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         mController.animateTo(cameraTarget);
         rotateMapSmoothly(mMyHeading);
 
-        // Determine if we should upload to Firebase (movement > 1 meter or heading changes significantly)
         boolean shouldUpload = false;
         if (oldPos == null) {
             shouldUpload = true;
@@ -645,7 +679,6 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             }
         }
 
-        // Update UI distance and directions locally
         if (mFriendMarker != null) {
             updateDistanceDisplay(mFriendMarker.getPosition().getLatitude(), mFriendMarker.getPosition().getLongitude());
             updateNavigationGuidance(location, mFriendMarker.getPosition(), mFriendLastAltitude);
@@ -660,7 +693,20 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             mFriendMarker.setIcon(createLetterMarker(R.drawable.custom_marker, friendId.equals("user_a") ? "A" : "B"));
             mFriendMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
             mFriendMarker.setInfoWindow(null);
-            mFriendMarker.setOnMarkerClickListener((marker, mapView) -> true);
+            mFriendMarker.setOnMarkerClickListener((marker, mapView) -> {
+                String roleLabel = "creator".equals(role) ? "Joiner (Friend)" : "Creator (Friend)";
+                showLocationDetailsDialog(
+                    roleLabel,
+                    friendId,
+                    marker.getPosition(),
+                    mFriendSpeedMs,
+                    mFriendHeading,
+                    mFriendLastAltitude,
+                    mLastFriendGpsAccuracy,
+                    mLastFriendGpsUpdateTimeMs
+                );
+                return true;
+            });
             mMapView.getOverlays().add(mFriendMarker);
             mFriendMarker.setPosition(friendSnappedPos);
 
@@ -675,10 +721,8 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         mFriendMarker.setRotation(360f - mFriendHeading);
         mMapView.invalidate();
 
-        // Compute distance even if local fix hasn't registered a full marker yet
         updateDistanceDisplay(friendSnappedPos.getLatitude(), friendSnappedPos.getLongitude());
 
-        // Dynamic guidance update when friend moves
         if (mMyMarker != null) {
             Location myMockLoc = new Location("gps");
             myMockLoc.setLatitude(mMyMarker.getPosition().getLatitude());
@@ -688,6 +732,113 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             }
             updateNavigationGuidance(myMockLoc, friendSnappedPos, mFriendLastAltitude);
         }
+    }
+
+    private void showLocationDetailsDialog(
+            String displayTitle,
+            String userId,
+            GeoPoint pos,
+            float speedMs,
+            float headingDeg,
+            double altitude,
+            float accuracyMeters,
+            long lastUpdateMs
+    ) {
+        if (isFinishing() || isDestroyed()) return;
+
+        androidx.appcompat.app.AlertDialog.Builder builder = new androidx.appcompat.app.AlertDialog.Builder(this);
+        
+        android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
+        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int paddingPx = (int) (18 * getResources().getDisplayMetrics().density);
+        layout.setPadding(paddingPx, paddingPx, paddingPx, paddingPx);
+
+        android.widget.LinearLayout header = new android.widget.LinearLayout(this);
+        header.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        android.widget.ImageView logoIv = new android.widget.ImageView(this);
+        int logoSize = (int) (38 * getResources().getDisplayMetrics().density);
+        android.widget.LinearLayout.LayoutParams logoParams = new android.widget.LinearLayout.LayoutParams(logoSize, logoSize);
+        logoParams.rightMargin = (int) (12 * getResources().getDisplayMetrics().density);
+        logoIv.setLayoutParams(logoParams);
+        logoIv.setImageResource(R.drawable.viaro);
+
+        android.widget.TextView titleTv = new android.widget.TextView(this);
+        titleTv.setText(displayTitle + " (" + userId + ")");
+        titleTv.setTextSize(17f);
+        titleTv.setTypeface(null, Typeface.BOLD);
+        titleTv.setTextColor(Color.parseColor("#0F172A"));
+
+        header.addView(logoIv);
+        header.addView(titleTv);
+        layout.addView(header);
+
+        android.widget.TextView detailsTv = new android.widget.TextView(this);
+        detailsTv.setPadding(0, (int) (12 * getResources().getDisplayMetrics().density), 0, 0);
+        detailsTv.setTextSize(14f);
+        detailsTv.setTextColor(Color.parseColor("#334155"));
+
+        double lat = pos != null ? pos.getLatitude() : 0.0;
+        double lon = pos != null ? pos.getLongitude() : 0.0;
+        double speedKmh = speedMs * 3.6;
+        long timeAgoSec = lastUpdateMs > 0 ? Math.max(0, (System.currentTimeMillis() - lastUpdateMs) / 1000) : 0;
+        String timeText = lastUpdateMs > 0 ? (timeAgoSec + "s ago") : "Just now";
+
+        String initialText = String.format(
+            "📍 Location Name:\nFetching address...\n\n" +
+            "🌐 Exact Coordinates:\nLat: %.6f\nLon: %.6f\n\n" +
+            "⚡ Speed & Direction:\n%.1f km/h | Bearing: %.0f°\n\n" +
+            "⛰️ Altitude & Accuracy:\nAlt: %.1f m | Acc: ±%.1f m\n\n" +
+            "⏱️ Last Update: %s",
+            lat, lon, speedKmh, headingDeg, altitude, accuracyMeters, timeText
+        );
+        detailsTv.setText(initialText);
+        layout.addView(detailsTv);
+
+        builder.setView(layout);
+        builder.setPositiveButton("Close", (dialog, which) -> dialog.dismiss());
+
+        androidx.appcompat.app.AlertDialog dialog = builder.create();
+        dialog.show();
+
+        // Reverse Geocoding in background thread
+        java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
+            String addressName = "Location Address";
+            try {
+                android.location.Geocoder geocoder = new android.location.Geocoder(this, java.util.Locale.getDefault());
+                java.util.List<android.location.Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    android.location.Address addr = addresses.get(0);
+                    StringBuilder sb = new StringBuilder();
+                    if (addr.getMaxAddressLineIndex() >= 0) {
+                        sb.append(addr.getAddressLine(0));
+                    } else {
+                        if (addr.getThoroughfare() != null) sb.append(addr.getThoroughfare()).append(", ");
+                        if (addr.getLocality() != null) sb.append(addr.getLocality()).append(", ");
+                        if (addr.getAdminArea() != null) sb.append(addr.getAdminArea());
+                    }
+                    addressName = sb.toString();
+                }
+            } catch (Exception e) {
+                addressName = String.format("Area near %.4f, %.4f", lat, lon);
+            }
+
+            final String finalAddress = addressName;
+            runOnUiThread(() -> {
+                if (dialog.isShowing()) {
+                    String updatedText = String.format(
+                        "📍 Location Name:\n%s\n\n" +
+                        "🌐 Exact Coordinates:\nLat: %.6f\nLon: %.6f\n\n" +
+                        "⚡ Speed & Direction:\n%.1f km/h | Bearing: %.0f°\n\n" +
+                        "⛰️ Altitude & Accuracy:\nAlt: %.1f m | Acc: ±%.1f m\n\n" +
+                        "⏱️ Last Update: %s",
+                        finalAddress, lat, lon, speedKmh, headingDeg, altitude, accuracyMeters, timeText
+                    );
+                    detailsTv.setText(updatedText);
+                }
+            });
+        });
     }
 
     private void updateDistanceDisplay(double fLat, double fLon) {
@@ -760,11 +911,11 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
                         mFriendSpeedMs = friendLoc.getSpeed();
                         mFriendHeading = friendLoc.getHeading() != 0.0f ? friendLoc.getHeading() : friendLoc.getBearing();
 
-                        // Filter friend location using friend's Kalman Filter
                         float friendAcc = friendLoc.getAccuracy() > 0 ? friendLoc.getAccuracy() : 15.0f;
+                        mLastFriendGpsAccuracy = friendAcc;
+
                         GeoPoint friendFilteredPos = mFriendKalmanFilter.filter(fLat, fLon, friendAcc, mLastFriendGpsUpdateTimeMs);
 
-                        // Snap friend to nearest road async
                         snapToRoadAsync(friendFilteredPos, new RoadSnapCallback() {
                             @Override
                             public void onSnapped(GeoPoint friendSnappedPos) {
@@ -774,7 +925,6 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
                     }
                 }
 
-                // Listen and render friend's breadcrumb trail so blue lines show on both phones!
                 DataSnapshot friendPathSnapshot = snapshot.child(friendId + "_path");
                 if (friendPathSnapshot.exists()) {
                     mFriendPath.clear();
@@ -811,7 +961,6 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
         GeoPoint myPos = new GeoPoint(myLocation.getLatitude(), myLocation.getLongitude());
 
-        // 1. Calculate relative turn instruction
         float myHeading = mMyLastHeading;
         if (myLocation.hasBearing()) {
             myHeading = myLocation.getBearing();
@@ -825,7 +974,6 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         float targetBearing = com.viaro.utils.MapUtils.calculateBearing(myPos, friendPos);
         String turnInstruction = com.viaro.utils.MapUtils.getDirectionInstruction(myHeading, targetBearing);
 
-        // 2. Track altitude differences for indoor vertical elevation changes (Glitch 4)
         String elevationInfo = "";
         if (myLocation.hasAltitude()) {
             mMyLastAltitude = myLocation.getAltitude();
@@ -859,9 +1007,12 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             }
             FirebaseHelper.removeMeetupRoom(roomCode);
         }
-        if (mFusedLocationClient != null && mLocationCallback != null) {
-            mFusedLocationClient.removeLocationUpdates(mLocationCallback);
-        }
+        LocationHelper.stopDualEngineLocationUpdates(
+            this,
+            mFusedLocationClient,
+            mLocationCallback,
+            mNativeLocationListener
+        );
         finish();
     }
 
