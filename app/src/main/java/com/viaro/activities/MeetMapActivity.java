@@ -644,39 +644,23 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         mController.animateTo(cameraTarget);
         rotateMapSmoothly(mMyHeading);
 
-        boolean shouldUpload = false;
-        if (oldPos == null) {
-            shouldUpload = true;
-        } else {
-            float[] distRes = new float[1];
-            Location.distanceBetween(oldPos.getLatitude(), oldPos.getLongitude(), lat, lon, distRes);
-            float distMoved = distRes[0];
-            float headingDiff = Math.abs(mMyHeading - mLastUploadedHeading);
-            while (headingDiff > 180.0f) headingDiff = 360.0f - headingDiff;
-
-            if (distMoved >= 1.0f || headingDiff >= 15.0f) {
-                shouldUpload = true;
-            }
-        }
-
-        if (shouldUpload) {
-            mLastUploadedHeading = mMyHeading;
-            UserLocationModel userLoc = new UserLocationModel(
-                myId,
-                lat,
-                lon,
-                alt,
-                location.hasBearing() ? location.getBearing() : 0.0f,
-                location.hasSpeed() ? location.getSpeed() : 0.0f,
-                acc,
-                System.currentTimeMillis(),
-                mMyHeading,
-                "navigating"
-            );
-            if (mRoomRef != null) {
-                mRoomRef.child(myId).setValue(userLoc);
-                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "LIVE LOCATION PUBLISHED: Lat=" + lat + ", Lon=" + lon + ", Bearing=" + userLoc.getBearing() + ", Speed=" + userLoc.getSpeed());
-            }
+        // ALWAYS publish live location to Firebase on every GPS fix
+        mLastUploadedHeading = mMyHeading;
+        UserLocationModel userLoc = new UserLocationModel(
+            myId,
+            lat,
+            lon,
+            alt,
+            location.hasBearing() ? location.getBearing() : 0.0f,
+            location.hasSpeed() ? location.getSpeed() : 0.0f,
+            acc,
+            System.currentTimeMillis(),
+            mMyHeading,
+            "navigating"
+        );
+        if (mRoomRef != null) {
+            mRoomRef.child(myId).setValue(userLoc);
+            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "LIVE LOCATION PUBLISHED: Lat=" + lat + ", Lon=" + lon + ", Bearing=" + userLoc.getBearing() + ", Speed=" + userLoc.getSpeed());
         }
 
         if (mFriendMarker != null) {
@@ -750,6 +734,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         
         android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
         layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        layout.setBackgroundColor(Color.parseColor("#0F172A"));
         int paddingPx = (int) (18 * getResources().getDisplayMetrics().density);
         layout.setPadding(paddingPx, paddingPx, paddingPx, paddingPx);
 
@@ -768,7 +753,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         titleTv.setText(displayTitle + " (" + userId + ")");
         titleTv.setTextSize(17f);
         titleTv.setTypeface(null, Typeface.BOLD);
-        titleTv.setTextColor(Color.parseColor("#0F172A"));
+        titleTv.setTextColor(Color.parseColor("#FFFFFF"));
 
         header.addView(logoIv);
         header.addView(titleTv);
@@ -777,7 +762,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         android.widget.TextView detailsTv = new android.widget.TextView(this);
         detailsTv.setPadding(0, (int) (12 * getResources().getDisplayMetrics().density), 0, 0);
         detailsTv.setTextSize(14f);
-        detailsTv.setTextColor(Color.parseColor("#334155"));
+        detailsTv.setTextColor(Color.parseColor("#F8FAFC"));
 
         double lat = pos != null ? pos.getLatitude() : 0.0;
         double lon = pos != null ? pos.getLongitude() : 0.0;
@@ -801,6 +786,9 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
         androidx.appcompat.app.AlertDialog dialog = builder.create();
         dialog.show();
+        if (dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE) != null) {
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setTextColor(Color.parseColor("#38BDF8"));
+        }
 
         // Reverse Geocoding in background thread
         java.util.concurrent.Executors.newSingleThreadExecutor().execute(() -> {
@@ -1005,7 +993,9 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             if (mRoomListener != null) {
                 mRoomRef.removeEventListener(mRoomListener);
             }
-            FirebaseHelper.removeMeetupRoom(roomCode);
+            if (myId != null) {
+                mRoomRef.child(myId).removeValue();
+            }
         }
         LocationHelper.stopDualEngineLocationUpdates(
             this,
