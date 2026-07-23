@@ -6,11 +6,11 @@ public class UserLocationModel {
     private double longitude;
     private double altitude;
     private long lastUpdated;
-    private float bearing;
-    private float speed;
-    private float accuracy;
+    private double bearing;
+    private double speed;
+    private double accuracy;
     private long timestamp;
-    private float heading;
+    private double heading;
     private String navigationState;
 
     public UserLocationModel() {
@@ -35,7 +35,7 @@ public class UserLocationModel {
         this.timestamp = System.currentTimeMillis();
     }
 
-    public UserLocationModel(String userId, double latitude, double longitude, double altitude, float bearing, float speed, float accuracy, long timestamp, float heading, String navigationState) {
+    public UserLocationModel(String userId, double latitude, double longitude, double altitude, double bearing, double speed, double accuracy, long timestamp, double heading, String navigationState) {
         this.userId = userId;
         this.latitude = latitude;
         this.longitude = longitude;
@@ -64,20 +64,20 @@ public class UserLocationModel {
     public long getLastUpdated() { return lastUpdated; }
     public void setLastUpdated(long lastUpdated) { this.lastUpdated = lastUpdated; }
 
-    public float getBearing() { return bearing; }
-    public void setBearing(float bearing) { this.bearing = bearing; }
+    public double getBearing() { return bearing; }
+    public void setBearing(double bearing) { this.bearing = bearing; }
 
-    public float getSpeed() { return speed; }
-    public void setSpeed(float speed) { this.speed = speed; }
+    public double getSpeed() { return speed; }
+    public void setSpeed(double speed) { this.speed = speed; }
 
-    public float getAccuracy() { return accuracy; }
-    public void setAccuracy(float accuracy) { this.accuracy = accuracy; }
+    public double getAccuracy() { return accuracy; }
+    public void setAccuracy(double accuracy) { this.accuracy = accuracy; }
 
     public long getTimestamp() { return timestamp; }
     public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
 
-    public float getHeading() { return heading; }
-    public void setHeading(float heading) { this.heading = heading; }
+    public double getHeading() { return heading; }
+    public void setHeading(double heading) { this.heading = heading; }
 
     public String getNavigationState() { return navigationState; }
     public void setNavigationState(String navigationState) { this.navigationState = navigationState; }
