@@ -1,5 +1,6 @@
 package com.viaro.firebase;
 
+import android.util.Log;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.viaro.models.BusModel;
@@ -15,7 +16,9 @@ public class FirebaseHelper {
                 // If standard initialization is loaded, retrieve instance
                 mDatabase = FirebaseDatabase.getInstance().getReference();
             } catch (Exception e) {
-                // Return dummy reference or handle gracefully
+                // Write detailed trace to Logcat to expose Firebase database connection failures
+                Log.e("FirebaseHelper", "DATABASE REFERENCE INITIALIZATION FAILED. " +
+                        "Verify google-services.json configuration, dependencies, and database region URL. Error: " + e.getMessage(), e);
                 mDatabase = null;
             }
         }
