@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:app="http://schemas.android.com/apk/app-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background">
@@ -205,6 +205,7 @@
     </LinearLayout>
 
     <!-- FULL SCREEN SEMI-TRANSPARENT GNSS MONITOR OVERLAY -->
+    <!-- Added android:elevation="10dp" here to overlay above card_top_status (6dp) -->
     <RelativeLayout
         android:id="@+id/layout_gnss_overlay"
         android:layout_width="match_parent"
@@ -212,6 +213,7 @@
         android:background="#E60F172A"
         android:clickable="true"
         android:focusable="true"
+        android:elevation="10dp"
         android:visibility="gone">
 
         <!-- Top Header Panel -->
