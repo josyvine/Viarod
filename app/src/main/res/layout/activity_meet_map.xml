@@ -66,7 +66,7 @@
         </LinearLayout>
     </androidx.cardview.widget.CardView>
 
-    <!-- Bottom Action Row: End Meetup and GPS current position -->
+    <!-- Bottom Action Row: Share Location Toggle, Map Explore Reset, and GPS current position -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -75,25 +75,35 @@
         android:layout_margin="24dp"
         android:gravity="center_vertical">
 
-        <!-- End Meetup Button -->
-        <Button
-            android:id="@+id/btn_end_meet"
-            android:layout_width="0dp"
+        <!-- Share Location Icon Toggle Button (Live state starts as Green #22C55E) -->
+        <ImageButton
+            android:id="@+id/btn_share_location"
+            android:layout_width="@dimen/button_height"
             android:layout_height="@dimen/button_height"
-            android:layout_weight="1"
             android:background="@drawable/bg_button"
-            android:backgroundTint="@color/error"
-            android:text="End Meetup"
-            android:drawableStart="@drawable/ic_close"
-            android:drawablePadding="8dp"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:textColor="@color/white"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            style="?android:attr/borderlessButtonStyle"/>
+            android:backgroundTint="#22C55E"
+            android:src="@drawable/share_location_24px"
+            android:contentDescription="Share Location"
+            android:scaleType="centerInside" />
 
-        <!-- Spacer -->
+        <!-- Spacer to push navigation/utility tools to the right-hand side -->
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <!-- Explore Compass Button (Reset Map Orientation to North) -->
+        <ImageButton
+            android:id="@+id/btn_explore"
+            android:layout_width="@dimen/button_height"
+            android:layout_height="@dimen/button_height"
+            android:background="@drawable/bg_button"
+            android:backgroundTint="@color/surface"
+            android:src="@drawable/explore_24px"
+            android:contentDescription="Reset to North"
+            android:scaleType="centerInside" />
+
+        <!-- Fixed Spacer -->
         <View
             android:layout_width="16dp"
             android:layout_height="1dp" />
