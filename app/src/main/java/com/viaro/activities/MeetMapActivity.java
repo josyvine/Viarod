@@ -69,6 +69,10 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     private boolean mHasFriendAltitude = false;
     private float mMyLastHeading = 0.0f;
 
+    // Temporal altitude smoothing fields to handle raw vertical sensor errors
+    private double mMySmoothAltitude = 0.0;
+    private double mFriendSmoothAltitude = 0.0;
+
     // Sensor Fusion & Compass fields
     private SensorManager mSensorManager;
     private Sensor mAccelerometer;
@@ -105,9 +109,10 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     public static class GpsKalmanFilter {
         private double lat;
         private double lon;
-        private double variance; // error covariance
+        private double variance; // Error covariance in degrees squared
         private long lastTimeMs;
-        private static final double PROCESS_NOISE = 1e-5; // Q: Process noise covariance (meters per second)
+        // Process noise in degrees (1e-5 degrees is approximately 1.1 meters)
+        private static final double PROCESS_NOISE_DEG = 1e-5; 
 
         public GpsKalmanFilter() {
             this.variance = -1.0;
@@ -120,10 +125,14 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         }
 
         public GeoPoint filter(double newLat, double newLon, double accuracyMeters, long timeMs) {
+            // Convert accuracy in meters to geographic degrees
+            double accuracyDegrees = accuracyMeters / 111000.0;
+            double measurementVariance = accuracyDegrees * accuracyDegrees; // in degrees squared
+
             if (variance < 0) {
                 this.lat = newLat;
                 this.lon = newLon;
-                this.variance = accuracyMeters * accuracyMeters;
+                this.variance = measurementVariance;
                 this.lastTimeMs = timeMs;
                 return new GeoPoint(newLat, newLon);
             }
@@ -133,9 +142,9 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             lastTimeMs = timeMs;
 
             double dtSeconds = durationMs / 1000.0;
-            this.variance += dtSeconds * PROCESS_NOISE * PROCESS_NOISE;
+            // Update error variance in degree coordinates
+            this.variance += dtSeconds * PROCESS_NOISE_DEG * PROCESS_NOISE_DEG;
 
-            double measurementVariance = accuracyMeters * accuracyMeters;
             double kGain = this.variance / (this.variance + measurementVariance);
 
             this.lat = this.lat + kGain * (newLat - this.lat);
@@ -499,14 +508,14 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
         com.viaro.utils.LogReporter.log(MeetMapActivity.this, "RAW LOCATION RECEIVED: Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt + ", Accuracy=" + acc + "m");
 
-        // Relaxed filters for cold start vs ongoing updates
+        // Relaxed filters for cold start vs ongoing updates (Relaxed to 120.0m to prevent asymmetric freezes indoors)
         if (mLastAcceptedLocation == null) {
-            if (acc > 80.0) {
+            if (acc > 150.0) {
                 return;
             }
         } else {
-            if (acc > 50.0) {
-                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Low accuracy (" + acc + "m > 50m)");
+            if (acc > 120.0) {
+                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "FILTER REJECTED: Low accuracy (" + acc + "m > 120m)");
                 return;
             }
 
@@ -534,7 +543,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         mLastAcceptedLocation = location;
         mLastMyGpsUpdateTimeMs = System.currentTimeMillis();
 
-        // Apply 2D Kalman Filter
+        // Apply corrected 2D Kalman Filter
         final GeoPoint kalmanPoint = mMyKalmanFilter.filter(lat, lon, acc, mLastMyGpsUpdateTimeMs);
 
         // Update local speed and heading variables
@@ -545,13 +554,8 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             mMyHeading = mCurrentCompassHeading;
         }
 
-        // Snap to Nearest Road using OSRM Web API async
-        snapToRoadAsync(kalmanPoint, new RoadSnapCallback() {
-            @Override
-            public void onSnapped(GeoPoint snappedPoint) {
-                processSnappedMyUpdate(snappedPoint, location);
-            }
-        });
+        // Bypass road snapping for indoor/pedestrian meetups to avoid snapping artifacts
+        processSnappedMyUpdate(kalmanPoint, location);
     }
 
     private void processSnappedMyUpdate(GeoPoint snappedPoint, Location location) {
@@ -915,12 +919,8 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
                         GeoPoint friendFilteredPos = mFriendKalmanFilter.filter(fLat, fLon, friendAcc, mLastFriendGpsUpdateTimeMs);
 
-                        snapToRoadAsync(friendFilteredPos, new RoadSnapCallback() {
-                            @Override
-                            public void onSnapped(GeoPoint friendSnappedPos) {
-                                processFriendSnappedUpdate(friendSnappedPos, friendLoc);
-                            }
-                        });
+                        // Bypass road snapping for friend updates to maintain raw accuracy alignment
+                        processFriendSnappedUpdate(friendFilteredPos, friendLoc);
                     }
                 }
 
@@ -975,15 +975,21 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
         String elevationInfo = "";
         if (myLocation.hasAltitude()) {
-            mMyLastAltitude = myLocation.getAltitude();
+            double rawAlt = myLocation.getAltitude();
+            // Low-pass exponential smoothing to stabilize local vertical sensor jitter
+            mMySmoothAltitude = (mMySmoothAltitude == 0.0) ? rawAlt : (mMySmoothAltitude * 0.9 + rawAlt * 0.1);
+            mMyLastAltitude = mMySmoothAltitude;
             mHasMyAltitude = true;
         }
 
         if (mHasMyAltitude && friendAltitude != 0.0) {
-            double altDiff = friendAltitude - mMyLastAltitude;
-            if (altDiff > 1.5) {
+            // Low-pass exponential smoothing to stabilize remote vertical sensor jitter
+            mFriendSmoothAltitude = (mFriendSmoothAltitude == 0.0) ? friendAltitude : (mFriendSmoothAltitude * 0.9 + friendAltitude * 0.1);
+            
+            double altDiff = mFriendSmoothAltitude - mMySmoothAltitude;
+            if (altDiff > 2.5) { // Threshold adjusted to 2.5m to mitigate trigger jitter
                 elevationInfo = " (Friend is upstairs)";
-            } else if (altDiff < -1.5) {
+            } else if (altDiff < -2.5) {
                 elevationInfo = " (Friend is downstairs)";
             } else {
                 elevationInfo = " (Same floor)";
