@@ -483,6 +483,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             mLayoutGnssOverlay.setVisibility(View.VISIBLE);
             mCardGnssMinimized.setVisibility(View.GONE);
             mLayoutBottomBar.setVisibility(View.GONE); // Dynamically hide bottom navigation bar
+            mIsGnssActive = true;
         });
 
         findViewById(R.id.btn_gnss_close).setOnClickListener(v -> {
@@ -678,6 +679,12 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
     @Override
     public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() == Sensor.TYPE_STEP_DETECTOR) {
+            mLastStepTimeMs = System.currentTimeMillis();
+            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "STEP EVENT DETECTED: Calibrating locomotion threshold.");
+            return;
+        }
+
         if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
             System.arraycopy(event.values, 0, mGravity, 0, event.values.length);
             mHasGravity = true;
@@ -853,6 +860,39 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
         GeoPoint oldPos = (mMyMarker != null) ? mMyMarker.getPosition() : null;
 
+        // --- STEP DETECTOR & LOCOMOTION GATING SYSTEM ---
+        boolean isMoving = false;
+        long timeSinceLastStep = System.currentTimeMillis() - mLastStepTimeMs;
+
+        if (mStepDetector != null) {
+            // Devices with physical Step Detectors: Check step events within sliding gate
+            isMoving = (timeSinceLastStep < STEP_IDLE_THRESHOLD_MS);
+        } else {
+            // Fallback for hardware lacking Step Detector: Check velocity thresholds
+            isMoving = location.hasSpeed() && location.getSpeed() >= 0.5f;
+        }
+
+        // Major teleport recovery threshold (e.g., 30 meters) bypasses stationary gating
+        if (oldPos != null) {
+            float[] resultsMarker = new float[1];
+            Location.distanceBetween(
+                oldPos.getLatitude(), oldPos.getLongitude(),
+                lat, lon,
+                resultsMarker
+            );
+            float distanceFromLastMarker = resultsMarker[0];
+
+            if (distanceFromLastMarker > 30.0f) {
+                isMoving = true;
+                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "STATIONARY GATE BYPASSED: Leap of " + distanceFromLastMarker + "m detected.");
+            }
+
+            if (!isMoving) {
+                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "STATIONARY GATE ACTIVE: Suppressed GPS drift update. Steps age: " + (timeSinceLastStep / 1000.0) + "s");
+                return; // Discard stationary drift completely
+            }
+        }
+
         boolean shouldAddBreadcrumb = false;
         float displacement = 0.0f;
 
@@ -875,18 +915,8 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
                     shouldAddBreadcrumb = true;
                     com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB PATH RESET: Teleportation detected (" + displacement + "m). Starting fresh.");
                 } else {
-                    boolean isMoving = true;
-                    float threshold = 4.0f;
-
-                    if (location.hasSpeed()) {
-                        if (location.getSpeed() < 0.3f) {
-                            isMoving = false;
-                        }
-                    } else {
-                        threshold = 10.0f;
-                    }
-
-                    if (isMoving && displacement >= threshold) {
+                    float threshold = (mStepDetector != null) ? 4.0f : 10.0f;
+                    if (displacement >= threshold) {
                         shouldAddBreadcrumb = true;
                         com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB ADDED: Moved " + String.format("%.2f", displacement) + "m >= " + threshold + "m threshold.");
                     }
@@ -1324,6 +1354,9 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             }
             if (mMagnetometer != null) {
                 mSensorManager.registerListener(this, mMagnetometer, SensorManager.SENSOR_DELAY_NORMAL);
+            }
+            if (mStepDetector != null) {
+                mSensorManager.registerListener(this, mStepDetector, SensorManager.SENSOR_DELAY_FASTEST);
             }
         }
         
