@@ -101,6 +101,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     private TextView mTvGnssMinimizedStatus, mTvGnssSatsCount, mTvGnssHardwarePrecision, mTvGnssAccuracy, mTvGnssSignalStrength, mTvGnssTip;
     private ProgressBar mBarGnssSignalAvg;
     private LinearLayout mLayoutSatelliteList;
+    private LinearLayout mLayoutBottomBar;
 
     // Sensor Fusion & Compass fields
     private SensorManager mSensorManager;
@@ -111,6 +112,11 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     private boolean mHasGravity = false;
     private boolean mHasGeomagnetic = false;
     private float mCurrentCompassHeading = 0.0f;
+
+    // Pedestrian Dead Reckoning (Step-Gated GPS) variables
+    private Sensor mStepDetector;
+    private long mLastStepTimeMs = 0;
+    private static final long STEP_IDLE_THRESHOLD_MS = 2000; // 2 seconds threshold
 
     // Kalman filters for local & remote smoothing
     private final GpsKalmanFilter mMyKalmanFilter = new GpsKalmanFilter();
@@ -457,33 +463,39 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         mTvGnssTip = findViewById(R.id.tv_gnss_tip);
         mBarGnssSignalAvg = findViewById(R.id.bar_gnss_signal_avg);
         mLayoutSatelliteList = findViewById(R.id.layout_satellite_list);
+        mLayoutBottomBar = findViewById(R.id.layout_bottom_bar);
 
         // Bind GNSS triggers and handlers
         findViewById(R.id.btn_gnss).setOnClickListener(v -> {
             mLayoutGnssOverlay.setVisibility(View.VISIBLE);
             mCardGnssMinimized.setVisibility(View.GONE);
+            mLayoutBottomBar.setVisibility(View.GONE); // Dynamically hide bottom navigation bar
             mIsGnssActive = true;
         });
 
         findViewById(R.id.btn_gnss_minimize).setOnClickListener(v -> {
             mLayoutGnssOverlay.setVisibility(View.GONE);
             mCardGnssMinimized.setVisibility(View.VISIBLE);
+            mLayoutBottomBar.setVisibility(View.VISIBLE); // Restore bottom navigation bar
         });
 
         findViewById(R.id.btn_gnss_maximize).setOnClickListener(v -> {
             mLayoutGnssOverlay.setVisibility(View.VISIBLE);
             mCardGnssMinimized.setVisibility(View.GONE);
+            mLayoutBottomBar.setVisibility(View.GONE); // Dynamically hide bottom navigation bar
         });
 
         findViewById(R.id.btn_gnss_close).setOnClickListener(v -> {
             mLayoutGnssOverlay.setVisibility(View.GONE);
             mCardGnssMinimized.setVisibility(View.GONE);
+            mLayoutBottomBar.setVisibility(View.VISIBLE); // Restore bottom navigation bar
             mIsGnssActive = false;
         });
 
         findViewById(R.id.btn_gnss_minimized_close).setOnClickListener(v -> {
             mLayoutGnssOverlay.setVisibility(View.GONE);
             mCardGnssMinimized.setVisibility(View.GONE);
+            mLayoutBottomBar.setVisibility(View.VISIBLE); // Restore bottom navigation bar
             mIsGnssActive = false;
         });
 
@@ -524,6 +536,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         if (mSensorManager != null) {
             mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
             mMagnetometer = mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+            mStepDetector = mSensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR);
         }
         
         // Start movement prediction system
