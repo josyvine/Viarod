@@ -136,6 +136,7 @@
 
     <!-- Bottom Action Row: Share Location Toggle, Map Explore Reset, GNSS Monitor, and GPS Location -->
     <LinearLayout
+        android:id="@+id/layout_bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
