@@ -2,6 +2,7 @@ package com.viaro.activities;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -19,6 +20,7 @@ import android.location.LocationListener;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.widget.ImageButton;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -35,9 +37,11 @@ import com.viaro.firebase.FirebaseHelper;
 import com.viaro.models.UserLocationModel;
 import com.viaro.utils.LocationHelper;
 import org.osmdroid.api.IMapController;
+import org.osmdroid.events.MapEventsReceiver;
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
 import org.osmdroid.util.GeoPoint;
 import org.osmdroid.views.MapView;
+import org.osmdroid.views.overlay.MapEventsOverlay;
 import org.osmdroid.views.overlay.Marker;
 import org.osmdroid.views.overlay.Polyline;
 import java.util.ArrayList;
@@ -52,6 +56,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     private final ArrayList<GeoPoint> mFriendPath = new ArrayList<>();
 
     private TextView tvStatus, tvDistance, tvGuidance;
+    private ImageButton btnShareLocation, btnExplore;
 
     private String roomCode, role, myId, friendId;
     private DatabaseReference mRoomRef;
@@ -72,6 +77,10 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     // Temporal altitude smoothing fields to handle raw vertical sensor errors
     private double mMySmoothAltitude = 0.0;
     private double mFriendSmoothAltitude = 0.0;
+
+    // Control toggles for the enhanced features
+    private boolean mIsRotationPaused = false;
+    private boolean mIsLiveSharing = true;
 
     // Sensor Fusion & Compass fields
     private SensorManager mSensorManager;
@@ -366,7 +375,53 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
         tvStatus.setText("Room Code: " + roomCode + " (Role: " + role + ")");
 
-        findViewById(R.id.btn_end_meet).setOnClickListener(v -> endMeetup());
+        // Register gestures overlay to intercept long-press events for rotation pause
+        MapEventsOverlay mapEventsOverlay = new MapEventsOverlay(new MapEventsReceiver() {
+            @Override
+            public boolean singleTapConfirmedHelper(GeoPoint p) {
+                return false;
+            }
+
+            @Override
+            public boolean longPressHelper(GeoPoint p) {
+                mIsRotationPaused = !mIsRotationPaused;
+                runOnUiThread(() -> {
+                    if (mIsRotationPaused) {
+                        android.widget.Toast.makeText(MeetMapActivity.this, "Map orientation locked (Rotation paused)", android.widget.Toast.LENGTH_SHORT).show();
+                    } else {
+                        android.widget.Toast.makeText(MeetMapActivity.this, "Map orientation unlocked (Rotation active)", android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return true;
+            }
+        });
+        mMapView.getOverlays().add(0, mapEventsOverlay);
+
+        // Bind and setup the new Explore (Compass Orientation Reset) Button
+        btnExplore = findViewById(R.id.btn_explore);
+        btnExplore.setOnClickListener(v -> {
+            mMapView.setMapOrientation(0.0f);
+            android.widget.Toast.makeText(this, "Map oriented to North", android.widget.Toast.LENGTH_SHORT).show();
+        });
+
+        // Bind and setup the new Live Share Location / End toggle button
+        btnShareLocation = findViewById(R.id.btn_share_location);
+        btnShareLocation.setOnClickListener(v -> {
+            mIsLiveSharing = !mIsLiveSharing;
+            if (mIsLiveSharing) {
+                // Set green background color tint when active
+                btnShareLocation.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#22C55E")));
+                android.widget.Toast.makeText(this, "Location Sharing Live", android.widget.Toast.LENGTH_SHORT).show();
+            } else {
+                // Set red background color tint when ended/paused
+                btnShareLocation.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#EF4444")));
+                android.widget.Toast.makeText(this, "Location Sharing Paused", android.widget.Toast.LENGTH_SHORT).show();
+                // Clean up location data on Firebase while sharing is toggled off
+                if (mRoomRef != null && myId != null) {
+                    mRoomRef.child(myId).removeValue();
+                }
+            }
+        });
 
         findViewById(R.id.btn_my_location).setOnClickListener(v -> {
             if (mMyMarker != null) {
@@ -429,7 +484,9 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
                     mMyHeading = mCurrentCompassHeading;
                     if (mMyMarker != null) {
                         mMyMarker.setRotation((float) (360.0 - mMyHeading));
-                        rotateMapSmoothly((float) mMyHeading);
+                        if (!mIsRotationPaused) {
+                            rotateMapSmoothly((float) mMyHeading);
+                        }
                     }
                 }
             }
@@ -657,25 +714,29 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         // Camera follow behavior
         GeoPoint cameraTarget = calculateCameraTarget(snappedPoint, (float) mMyHeading);
         mController.animateTo(cameraTarget);
-        rotateMapSmoothly((float) mMyHeading);
+        if (!mIsRotationPaused) {
+            rotateMapSmoothly((float) mMyHeading);
+        }
 
-        // ALWAYS publish live location to Firebase on every GPS fix
-        mLastUploadedHeading = mMyHeading;
-        UserLocationModel userLoc = new UserLocationModel(
-            myId,
-            lat,
-            lon,
-            alt,
-            location.hasBearing() ? (double) location.getBearing() : 0.0,
-            location.hasSpeed() ? (double) location.getSpeed() : 0.0,
-            acc,
-            System.currentTimeMillis(),
-            mMyHeading,
-            "navigating"
-        );
-        if (mRoomRef != null) {
-            mRoomRef.child(myId).setValue(userLoc);
-            com.viaro.utils.LogReporter.log(MeetMapActivity.this, "LIVE LOCATION PUBLISHED: Lat=" + lat + ", Lon=" + lon + ", Bearing=" + userLoc.getBearing() + ", Speed=" + userLoc.getSpeed());
+        // ALWAYS publish live location to Firebase on every GPS fix, provided that Live Sharing toggle is active
+        if (mIsLiveSharing) {
+            mLastUploadedHeading = mMyHeading;
+            UserLocationModel userLoc = new UserLocationModel(
+                myId,
+                lat,
+                lon,
+                alt,
+                location.hasBearing() ? (double) location.getBearing() : 0.0,
+                location.hasSpeed() ? (double) location.getSpeed() : 0.0,
+                acc,
+                System.currentTimeMillis(),
+                mMyHeading,
+                "navigating"
+            );
+            if (mRoomRef != null) {
+                mRoomRef.child(myId).setValue(userLoc);
+                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "LIVE LOCATION PUBLISHED: Lat=" + lat + ", Lon=" + lon + ", Bearing=" + userLoc.getBearing() + ", Speed=" + userLoc.getSpeed());
+            }
         }
 
         if (mFriendMarker != null) {
