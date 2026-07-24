@@ -15,15 +15,24 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+import android.widget.RelativeLayout;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.cardview.widget.CardView;
 import com.vineyard.viaro.app.R;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -81,6 +90,17 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     // Control toggles for the enhanced features
     private boolean mIsRotationPaused = false;
     private boolean mIsLiveSharing = true;
+
+    // Hardware GNSS Status fields and references
+    private LocationManager mLocationManager;
+    private GnssStatus.Callback mGnssStatusCallback;
+    private boolean mIsGnssActive = false;
+
+    private RelativeLayout mLayoutGnssOverlay;
+    private CardView mCardGnssMinimized, mCardGnssTip;
+    private TextView mTvGnssMinimizedStatus, mTvGnssSatsCount, mTvGnssHardwarePrecision, mTvGnssAccuracy, mTvGnssSignalStrength, mTvGnssTip;
+    private ProgressBar mBarGnssSignalAvg;
+    private LinearLayout mLayoutSatelliteList;
 
     // Sensor Fusion & Compass fields
     private SensorManager mSensorManager;
@@ -423,6 +443,61 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             }
         });
 
+        // Bind the new GNSS HUD components
+        mLocationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        mLayoutGnssOverlay = findViewById(R.id.layout_gnss_overlay);
+        mCardGnssMinimized = findViewById(R.id.card_gnss_minimized);
+        mCardGnssTip = findViewById(R.id.card_gnss_tip);
+
+        mTvGnssMinimizedStatus = findViewById(R.id.tv_gnss_minimized_status);
+        mTvGnssSatsCount = findViewById(R.id.tv_gnss_sats_count);
+        mTvGnssHardwarePrecision = findViewById(R.id.tv_gnss_hardware_precision);
+        mTvGnssAccuracy = findViewById(R.id.tv_gnss_accuracy);
+        mTvGnssSignalStrength = findViewById(R.id.tv_gnss_signal_strength);
+        mTvGnssTip = findViewById(R.id.tv_gnss_tip);
+        mBarGnssSignalAvg = findViewById(R.id.bar_gnss_signal_avg);
+        mLayoutSatelliteList = findViewById(R.id.layout_satellite_list);
+
+        // Bind GNSS triggers and handlers
+        findViewById(R.id.btn_gnss).setOnClickListener(v -> {
+            mLayoutGnssOverlay.setVisibility(View.VISIBLE);
+            mCardGnssMinimized.setVisibility(View.GONE);
+            mIsGnssActive = true;
+        });
+
+        findViewById(R.id.btn_gnss_minimize).setOnClickListener(v -> {
+            mLayoutGnssOverlay.setVisibility(View.GONE);
+            mCardGnssMinimized.setVisibility(View.VISIBLE);
+        });
+
+        findViewById(R.id.btn_gnss_maximize).setOnClickListener(v -> {
+            mLayoutGnssOverlay.setVisibility(View.VISIBLE);
+            mCardGnssMinimized.setVisibility(View.GONE);
+        });
+
+        findViewById(R.id.btn_gnss_close).setOnClickListener(v -> {
+            mLayoutGnssOverlay.setVisibility(View.GONE);
+            mCardGnssMinimized.setVisibility(View.GONE);
+            mIsGnssActive = false;
+        });
+
+        findViewById(R.id.btn_gnss_minimized_close).setOnClickListener(v -> {
+            mLayoutGnssOverlay.setVisibility(View.GONE);
+            mCardGnssMinimized.setVisibility(View.GONE);
+            mIsGnssActive = false;
+        });
+
+        // Setup the GNSS Status Callback
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            mGnssStatusCallback = new GnssStatus.Callback() {
+                @Override
+                public void onSatelliteStatusChanged(@NonNull GnssStatus status) {
+                    super.onSatelliteStatusChanged(status);
+                    updateGnssDisplay(status);
+                }
+            };
+        }
+
         findViewById(R.id.btn_my_location).setOnClickListener(v -> {
             if (mMyMarker != null) {
                 mController.animateTo(mMyMarker.getPosition());
@@ -453,6 +528,139 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         
         // Start movement prediction system
         startDeadReckoningTimer();
+    }
+
+    /**
+     * Aggregates and displays real-time GNSS satellite details inside the overlays
+     */
+    private void updateGnssDisplay(GnssStatus status) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+
+        int totalCount = status.getSatelliteCount();
+        int usedInFixCount = 0;
+        float accumulatedSignal = 0f;
+        boolean hasDualBandTracking = false;
+
+        for (int i = 0; i < totalCount; i++) {
+            if (status.usedInFix(i)) {
+                usedInFixCount++;
+            }
+            accumulatedSignal += status.getCn0DbHz(i);
+            
+            // Check for modern L5 high-precision dual-band tracking
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (status.hasCarrierFrequencyHz(i)) {
+                    double freq = status.getCarrierFrequencyHz(i);
+                    // L5 carrier frequency band falls around 1.176 GHz (1.15e9 to 1.2e9 Hz range)
+                    if (freq >= 1.15e9 && freq <= 1.20e9) {
+                        hasDualBandTracking = true;
+                    }
+                }
+            }
+        }
+
+        float avgSignal = totalCount > 0 ? (accumulatedSignal / totalCount) : 0f;
+
+        // Update top-level HUD summary components
+        mTvGnssSatsCount.setText(String.format("Active Satellites: %d used / %d in view", usedInFixCount, totalCount));
+        mTvGnssHardwarePrecision.setText(hasDualBandTracking ? "Precision Mode: L1+L5 Dual-Band (High)" : "Precision Mode: L1 Single-Band (Standard)");
+        mTvGnssSignalStrength.setText(String.format("%.1f dB-Hz (%s)", avgSignal, avgSignal > 30 ? "Strong Lock" : avgSignal > 18 ? "Weak/Bounced" : "No Lock"));
+        mBarGnssSignalAvg.setProgress((int) avgSignal);
+
+        // Adjust UI bar tint color based on signal health
+        if (avgSignal > 30) {
+            mBarGnssSignalAvg.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#22C55E")));
+        } else if (avgSignal > 18) {
+            mBarGnssSignalAvg.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#F59E0B")));
+        } else {
+            mBarGnssSignalAvg.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#EF4444")));
+        }
+
+        // Update minimized floating card data
+        mTvGnssMinimizedStatus.setText(String.format("📡 %d/%d Sats | Avg: %.0f dB", usedInFixCount, totalCount, avgSignal));
+
+        // Inject smart context-aware tips based on GNSS satellite configuration
+        if (usedInFixCount < 4) {
+            mTvGnssTip.setText("Tip: Acquiring satellite signals... If indoors, step near a window to establish a line-of-sight location fix.");
+            mCardGnssTip.setCardBackgroundColor(ColorStateList.valueOf(Color.parseColor("#26EF4444"))); // Translucent Red
+            mTvGnssTip.setTextColor(Color.parseColor("#FCA5A5"));
+        } else if (usedInFixCount >= 8 && avgSignal > 28) {
+            mTvGnssTip.setText("Tip: Strong signal lock. Location updates are highly precise. Relative floor elevation tracking is active.");
+            mCardGnssTip.setCardBackgroundColor(ColorStateList.valueOf(Color.parseColor("#2622C55E"))); // Translucent Green
+            mTvGnssTip.setTextColor(Color.parseColor("#86EFAC"));
+        } else {
+            mTvGnssTip.setText("Tip: Moderate signal lock. Signal reflection may occur in dense urban spaces or under heavy tree cover.");
+            mCardGnssTip.setCardBackgroundColor(ColorStateList.valueOf(Color.parseColor("#26F59E0B"))); // Translucent Amber
+            mTvGnssTip.setTextColor(Color.parseColor("#FDE047"));
+        }
+
+        // Build list of active satellites programmatically to avoid heavy XML recycler adapter overhead
+        mLayoutSatelliteList.removeAllViews();
+        for (int i = 0; i < totalCount; i++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, (int) (8 * getResources().getDisplayMetrics().density), 0, (int) (8 * getResources().getDisplayMetrics().density));
+
+            // Constellation Type Symbol + SVID
+            TextView tvSatInfo = new TextView(this);
+            tvSatInfo.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.5f));
+            tvSatInfo.setTextColor(Color.parseColor("#F8FAFC"));
+            tvSatInfo.setTextSize(13);
+            int constType = status.getConstellationType(i);
+            String constSymbol = "🛰️";
+            if (constType == GnssStatus.CONSTELLATION_GPS) constSymbol = "🇺🇸 GPS";
+            else if (constType == GnssStatus.CONSTELLATION_GLONASS) constSymbol = "🇷🇺 GLON";
+            else if (constType == GnssStatus.CONSTELLATION_GALILEO) constSymbol = "🇪🇺 GAL";
+            else if (constType == GnssStatus.CONSTELLATION_BEIDOU) constSymbol = "🇨🇳 BDS";
+            else if (constType == GnssStatus.CONSTELLATION_QZSS) constSymbol = "🇯🇵 QZSS";
+            tvSatInfo.setText(constSymbol + " #" + status.getSvid(i));
+
+            // Used in active calculation state
+            TextView tvFixInfo = new TextView(this);
+            tvFixInfo.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+            tvFixInfo.setTextSize(12);
+            if (status.usedInFix(i)) {
+                tvFixInfo.setTextColor(Color.parseColor("#22C55E"));
+                tvFixInfo.setText("✔️ Fix");
+            } else {
+                tvFixInfo.setTextColor(Color.parseColor("#94A3B8"));
+                tvFixInfo.setText("⭕ View");
+            }
+
+            // Signal bar progress indicators
+            ProgressBar pBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(0, (int) (6 * getResources().getDisplayMetrics().density), 2.0f);
+            barParams.setMarginStart((int) (8 * getResources().getDisplayMetrics().density));
+            barParams.setMarginEnd((int) (8 * getResources().getDisplayMetrics().density));
+            pBar.setLayoutParams(barParams);
+            pBar.setMax(45);
+            float cn0 = status.getCn0DbHz(i);
+            pBar.setProgress((int) cn0);
+
+            if (cn0 > 30) {
+                pBar.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#22C55E")));
+            } else if (cn0 > 18) {
+                pBar.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#F59E0B")));
+            } else {
+                pBar.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#EF4444")));
+            }
+
+            // Exact strength readout in decibels
+            TextView tvDbVal = new TextView(this);
+            tvDbVal.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
+            tvDbVal.setTextColor(Color.parseColor("#94A3B8"));
+            tvDbVal.setTextSize(12);
+            tvDbVal.setGravity(android.view.Gravity.END);
+            tvDbVal.setText(String.format("%.1f dB", cn0));
+
+            row.addView(tvSatInfo);
+            row.addView(tvFixInfo);
+            row.addView(pBar);
+            row.addView(tvDbVal);
+
+            mLayoutSatelliteList.addView(row);
+        }
     }
 
     @Override
@@ -609,6 +817,15 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             mMyHeading = location.getBearing();
         } else if (mMySpeedMs < 1.0) {
             mMyHeading = mCurrentCompassHeading;
+        }
+
+        // Keep the GNSS accuracy UI overlay fully in sync with standard Android GPS updates
+        if (mTvGnssAccuracy != null) {
+            float vAcc = 0.0f;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vAcc = location.hasVerticalAccuracy() ? location.getVerticalAccuracyMeters() : 0.0f;
+            }
+            mTvGnssAccuracy.setText(String.format("Error Threshold: Horizontal ±%.1fm | Vertical ±%.1fm", acc, vAcc));
         }
 
         // Bypass road snapping for indoor/pedestrian meetups to avoid snapping artifacts
@@ -1096,6 +1313,13 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
                 mSensorManager.registerListener(this, mMagnetometer, SensorManager.SENSOR_DELAY_NORMAL);
             }
         }
+        
+        // Register the active GNSS tracking receiver
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && mLocationManager != null && mGnssStatusCallback != null) {
+            try {
+                mLocationManager.registerGnssStatusCallback(mGnssStatusCallback, new Handler(Looper.getMainLooper()));
+            } catch (SecurityException ignored) {}
+        }
     }
 
     @Override
@@ -1104,6 +1328,11 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         if (mMapView != null) mMapView.onPause();
         if (mSensorManager != null) {
             mSensorManager.unregisterListener(this);
+        }
+        
+        // Unregister the GNSS receiver to prevent memory leaks and save battery
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && mLocationManager != null && mGnssStatusCallback != null) {
+            mLocationManager.unregisterGnssStatusCallback(mGnssStatusCallback);
         }
     }
 
