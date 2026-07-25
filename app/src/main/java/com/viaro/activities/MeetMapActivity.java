@@ -1,5 +1,7 @@
 package com.viaro.activities;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.ColorStateList;
@@ -33,6 +35,7 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
+import androidx.core.content.ContextCompat;
 import com.vineyard.viaro.app.R;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -333,7 +336,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     private BitmapDrawable createLetterMarker(int drawableId, String letter) {
         Drawable drawable = getResources().getDrawable(drawableId, null);
         int width = drawable.getIntrinsicWidth();
-        int height = drawable.getIntrinsicHeight();
+        int height = drawable.getIntrinsicWidth();
         if (width <= 0) width = 96;
         if (height <= 0) height = 96;
 
@@ -894,7 +897,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         } else {
             // Fallback for hardware lacking Step Detector: Check physical dynamic motion AND velocity
             boolean hasPhysicalActivity = (timeSinceLastMotion < MOTION_IDLE_THRESHOLD_MS);
-            isMoving = hasPhysicalActivity && location.hasSpeed() && location.getSpeed() >= 0.8f;
+            isMoving = hasPhysicalActivity && location.hasSpeed() && location.getSpeed() >= 0.5f;
         }
 
         // Major teleport recovery threshold (e.g., 30 meters) bypasses stationary gating
