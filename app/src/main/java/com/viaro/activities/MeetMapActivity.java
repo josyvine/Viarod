@@ -117,6 +117,10 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
     private Sensor mStepDetector;
     private long mLastStepTimeMs = 0;
     private static final long STEP_IDLE_THRESHOLD_MS = 2000; // 2 seconds threshold
+    
+    // Fallback hardware motion tracking memory
+    private long mLastSignificantMotionTimeMs = 0;
+    private static final long MOTION_IDLE_THRESHOLD_MS = 3000; // 3 seconds motion memory
 
     // Kalman filters for local & remote smoothing
     private final GpsKalmanFilter mMyKalmanFilter = new GpsKalmanFilter();
@@ -695,6 +699,18 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
             System.arraycopy(event.values, 0, mGravity, 0, event.values.length);
             mHasGravity = true;
+            
+            // Extract dynamic acceleration forces to detect physical walking/handling activity
+            float x = event.values[0];
+            float y = event.values[1];
+            float z = event.values[2];
+            double magnitude = Math.sqrt(x * x + y * y + z * z);
+            double deviation = Math.abs(magnitude - SensorManager.GRAVITY_EARTH);
+
+            // A deviation threshold of 1.2 m/s^2 filters out subtle hand shakes but catches active walking steps
+            if (deviation > 1.2) {
+                mLastSignificantMotionTimeMs = System.currentTimeMillis();
+            }
         } else if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
             System.arraycopy(event.values, 0, mGeomagnetic, 0, event.values.length);
             mHasGeomagnetic = true;
@@ -867,16 +883,18 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
         GeoPoint oldPos = (mMyMarker != null) ? mMyMarker.getPosition() : null;
 
-        // --- STEP DETECTOR & LOCOMOTION GATING SYSTEM ---
+        // --- STEP DETECTOR & ACCELEROMETER MOTION GATING SYSTEM ---
         boolean isMoving = false;
         long timeSinceLastStep = System.currentTimeMillis() - mLastStepTimeMs;
+        long timeSinceLastMotion = System.currentTimeMillis() - mLastSignificantMotionTimeMs;
 
         if (mStepDetector != null) {
             // Devices with physical Step Detectors: Check step events within sliding gate
             isMoving = (timeSinceLastStep < STEP_IDLE_THRESHOLD_MS);
         } else {
-            // Fallback for hardware lacking Step Detector: Check velocity thresholds
-            isMoving = location.hasSpeed() && location.getSpeed() >= 0.5f;
+            // Fallback for hardware lacking Step Detector: Check physical dynamic motion AND velocity
+            boolean hasPhysicalActivity = (timeSinceLastMotion < MOTION_IDLE_THRESHOLD_MS);
+            isMoving = hasPhysicalActivity && location.hasSpeed() && location.getSpeed() >= 0.8f;
         }
 
         // Major teleport recovery threshold (e.g., 30 meters) bypasses stationary gating
@@ -895,7 +913,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             }
 
             if (!isMoving) {
-                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "STATIONARY GATE ACTIVE: Suppressed GPS drift update. Steps age: " + (timeSinceLastStep / 1000.0) + "s");
+                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "STATIONARY GATE ACTIVE: Suppressed GPS drift update. Steps age: " + (timeSinceLastStep / 1000.0) + "s. Motion age: " + (timeSinceLastMotion / 1000.0) + "s");
                 return; // Discard stationary drift completely
             }
         }
