@@ -530,6 +530,13 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         setupLocationUpdates();
 
         mRoomRef = FirebaseHelper.getMeetupReference(roomCode);
+        
+        // SESSION CLEANUP Logic for the Creator role upon startup
+        if ("creator".equals(role) && mRoomRef != null) {
+            com.viaro.utils.LogReporter.log(this, "CREATOR INITIALIZATION: Cleaning up stale database room nodes.");
+            mRoomRef.removeValue();
+        }
+        
         setupFirebaseListener();
 
         // Initialize Sensors
@@ -896,10 +903,13 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
         boolean shouldAddBreadcrumb = false;
         float displacement = 0.0f;
 
-        if (acc <= 75.0) {
+        if (acc <= 25.0) { // Gating the first point with accurate GPS horizontal threshold
             if (mMyPath.isEmpty()) {
-                shouldAddBreadcrumb = true;
-                com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB PATH STARTED: First point added.");
+                // Do not register the first path point unless physical locomotion is actively happening
+                if (isMoving) {
+                    shouldAddBreadcrumb = true;
+                    com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB PATH STARTED: First point added.");
+                }
             } else {
                 GeoPoint lastPoint = mMyPath.get(mMyPath.size() - 1);
                 float[] results = new float[1];
@@ -912,11 +922,14 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
 
                 if (displacement > 150.0f) {
                     mMyPath.clear();
-                    shouldAddBreadcrumb = true;
-                    com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB PATH RESET: Teleportation detected (" + displacement + "m). Starting fresh.");
+                    // Restart breadcrumb recording only when physical movement occurs
+                    if (isMoving) {
+                        shouldAddBreadcrumb = true;
+                        com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB PATH RESET: Teleportation detected (" + displacement + "m). Starting fresh.");
+                    }
                 } else {
                     float threshold = (mStepDetector != null) ? 4.0f : 10.0f;
-                    if (displacement >= threshold) {
+                    if (isMoving && displacement >= threshold) {
                         shouldAddBreadcrumb = true;
                         com.viaro.utils.LogReporter.log(MeetMapActivity.this, "BREADCRUMB ADDED: Moved " + String.format("%.2f", displacement) + "m >= " + threshold + "m threshold.");
                     }
@@ -1333,6 +1346,7 @@ public class MeetMapActivity extends AppCompatActivity implements SensorEventLis
             }
             if (myId != null) {
                 mRoomRef.child(myId).removeValue();
+                mRoomRef.child(myId + "_path").removeValue(); // Clear path node upon exit
             }
         }
         LocationHelper.stopDualEngineLocationUpdates(
