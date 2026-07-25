@@ -39,6 +39,34 @@ public class PermissionHelper {
         }
     }
 
+    /**
+     * Checks if the dynamic Physical Activity Recognition permission is granted on Android 10+.
+     */
+    public static boolean hasActivityRecognitionPermission(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) == PackageManager.PERMISSION_GRANTED;
+        }
+        return true;
+    }
+
+    /**
+     * Requests the Physical Activity Recognition permission on Android 10+.
+     */
+    public static void requestActivityRecognitionPermission(Activity activity, int requestCode) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ActivityCompat.requestPermissions(activity, new String[]{
+                    Manifest.permission.ACTIVITY_RECOGNITION
+            }, requestCode);
+        }
+    }
+
+    /**
+     * Combined check for both high-accuracy location and physical activity recognition permissions.
+     */
+    public static boolean hasRequiredPermissions(Context context) {
+        return hasLocationPermissions(context) && hasActivityRecognitionPermission(context);
+    }
+
     public static boolean isNetworkAvailable(Context context) {
         ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (connectivityManager != null) {
