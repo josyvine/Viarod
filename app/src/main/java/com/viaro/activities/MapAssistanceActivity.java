@@ -794,4 +794,4 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         }
         if (mMapView != null) mMapView.onDetach();
     }
-} 
+}
