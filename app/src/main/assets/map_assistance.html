@@ -21,7 +21,7 @@
       width: 100vw;
       height: 100vh;
       overflow: hidden;
-      pointer-events: none; /* Let map touch events pass through background */
+      pointer-events: none; /* GLITCH 2 FIX: Let map gestures (zoom/pan) pass through */
     }
 
     /* Floating Top Status Header */
@@ -325,6 +325,75 @@
     .save-btn:active {
       background: #0369a1;
     }
+
+    /* GLITCH 1 FIX: Diagnostic Log Terminal Modal */
+    .diagnostic-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(10, 15, 30, 0.96);
+      backdrop-filter: blur(12px);
+      z-index: 300;
+      padding: 20px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      color: #00ff00;
+      font-family: monospace;
+      pointer-events: auto;
+    }
+
+    .diag-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #00ff00;
+      padding-bottom: 8px;
+      color: #00ff00;
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .diag-terminal {
+      flex: 1;
+      background: #000000;
+      border: 1px solid #00ff00;
+      border-radius: 6px;
+      padding: 12px;
+      overflow-y: auto;
+      font-size: 11px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .diag-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .diag-btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 12px;
+      cursor: pointer;
+      border: none;
+    }
+
+    .diag-btn-copy {
+      background: #00ff00;
+      color: #000000;
+    }
+
+    .diag-btn-close {
+      background: #222222;
+      color: #00ff00;
+      border: 1px solid #00ff00;
+    }
   </style>
 </head>
 <body>
@@ -365,8 +434,8 @@
       </div>
     </button>
 
-    <button class="header-btn" onclick="clearLiveTranscript()" title="Clear Transcript">
-      <span class="material-symbols-outlined" style="font-size: 20px;">cleaning_services</span>
+    <button class="header-btn" onclick="openDiagnosticModal()" title="View Diagnostic Logs">
+      <span class="material-symbols-outlined" style="font-size: 20px;">bug_report</span>
     </button>
   </div>
 
@@ -421,10 +490,63 @@
       </label>
     </div>
 
+    <button class="save-btn" onclick="openDiagnosticModal()">View Terminal Diagnostic Log</button>
     <button class="save-btn" onclick="saveSettingsAndClose()">Save & Apply Configurations</button>
   </div>
 
+  <!-- GLITCH 1 FIX: Diagnostic Terminal Modal -->
+  <div class="diagnostic-modal" id="diagnosticLogModal">
+    <div class="diag-header">
+      <span>System Terminal Diagnostic Log</span>
+      <button class="header-btn" onclick="closeDiagnosticModal()">
+        <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+      </button>
+    </div>
+    <div class="diag-terminal" id="diagTerminalText">Initializing Map Assistance Terminal Logs...\n</div>
+    <div class="diag-actions">
+      <button class="diag-btn diag-btn-copy" onclick="copyDiagnosticLogs()">Copy Logs</button>
+      <button class="diag-btn diag-btn-close" onclick="closeDiagnosticModal()">Close</button>
+    </div>
+  </div>
+
   <script>
+    // GLITCH 1 FIX: Global Error Interceptor
+    window.onerror = function(msg, url, line, col, error) {
+      logDiag(`[ERROR] Exception: ${msg} at line ${line}:${col}`, "error");
+      return false;
+    };
+
+    window.onunhandledrejection = function(e) {
+      logDiag(`[PROMISE_REJECTION] ${e.reason}`, "error");
+    };
+
+    function logDiag(message, type = "info") {
+      const term = document.getElementById('diagTerminalText');
+      if (term) {
+        const ts = new Date().toLocaleTimeString();
+        term.textContent += `[${ts}] [${type.toUpperCase()}] ${message}\n`;
+        term.scrollTop = term.scrollHeight;
+      }
+    }
+
+    function openDiagnosticModal() {
+      document.getElementById('diagnosticLogModal').style.display = 'flex';
+    }
+
+    function closeDiagnosticModal() {
+      document.getElementById('diagnosticLogModal').style.display = 'none';
+    }
+
+    function copyDiagnosticLogs() {
+      const text = document.getElementById('diagTerminalText').textContent;
+      if (window.AndroidInterface && window.AndroidInterface.copyToClipboard) {
+        window.AndroidInterface.copyToClipboard(text);
+      } else {
+        navigator.clipboard.writeText(text);
+        alert("Diagnostic log copied to clipboard.");
+      }
+    }
+
     // System State Variables
     let liveWs = null;
     let liveAudioContext = null;
@@ -437,6 +559,7 @@
 
     // Load Settings on Start
     window.addEventListener('DOMContentLoaded', () => {
+      logDiag("Map Assistance HTML Engine initialized.", "info");
       loadSettingsFromNative();
       updateHeaderSpatialText();
       setInterval(updateHeaderSpatialText, 1000);
@@ -444,11 +567,16 @@
 
     function loadSettingsFromNative() {
       if (window.AndroidInterface) {
-        document.getElementById('geminiApiKeyInput').value = window.AndroidInterface.getGeminiApiKey() || '';
-        document.getElementById('geminiModelSelect').value = window.AndroidInterface.getGeminiModel() || 'gemini-3.1-flash-live-preview';
-        document.getElementById('geminiVoiceSelect').value = window.AndroidInterface.getGeminiVoice() || 'Puck';
-        document.getElementById('geminiMapsGroundingToggle').checked = window.AndroidInterface.getMapGroundingEnabled();
-        document.getElementById('geminiSearchGroundingToggle').checked = window.AndroidInterface.getSearchGroundingEnabled();
+        try {
+          document.getElementById('geminiApiKeyInput').value = window.AndroidInterface.getGeminiApiKey() || '';
+          document.getElementById('geminiModelSelect').value = window.AndroidInterface.getGeminiModel() || 'gemini-3.1-flash-live-preview';
+          document.getElementById('geminiVoiceSelect').value = window.AndroidInterface.getGeminiVoice() || 'Puck';
+          document.getElementById('geminiMapsGroundingToggle').checked = window.AndroidInterface.getMapGroundingEnabled();
+          document.getElementById('geminiSearchGroundingToggle').checked = window.AndroidInterface.getSearchGroundingEnabled();
+          logDiag("Settings loaded from native AndroidInterface.", "info");
+        } catch(e) {
+          logDiag("Error loading settings from bridge: " + e.message, "error");
+        }
       }
     }
 
@@ -466,6 +594,7 @@
         window.AndroidInterface.saveMapGroundingEnabled(mapsGround);
         window.AndroidInterface.saveSearchGroundingEnabled(searchGround);
         window.AndroidInterface.showToast("Map Assistance settings saved!");
+        logDiag("Settings saved to native SharedPreferences.", "info");
       }
 
       toggleSettingsDrawer();
@@ -509,6 +638,7 @@
         bodyEl.textContent = text;
         overlay.scrollTop = overlay.scrollHeight;
       }
+      logDiag(`[${speaker}] ${text}`, "info");
     }
 
     function appendTranscriptText(text) {
@@ -525,6 +655,7 @@
     /* --- PUTER SPARKLE BUTTON & LIVE TOGGLE ACTION --- */
     function triggerVoiceAgent() {
       if (liveWs && (liveWs.readyState === WebSocket.OPEN || liveWs.readyState === WebSocket.CONNECTING)) {
+        logDiag("User clicked to disconnect Gemini Live.", "info");
         disconnectWebSocketLive();
         return;
       }
@@ -543,6 +674,7 @@
 
       if (!apiKey) {
         alert("Please enter a valid Gemini API Key in settings.");
+        logDiag("Live switch aborted: Missing API Key.", "error");
         const icon = document.getElementById('voiceAgentIcon');
         if (icon) icon.classList.remove('sparkle-active');
         toggleSettingsDrawer();
@@ -561,18 +693,23 @@
       disconnectWebSocketLive();
 
       setTranscriptText("System", "Connecting to Gemini Live API...");
+      logDiag(`Connecting to Gemini Live WebSocket. Model: ${modelId}, Voice: ${voiceName}`, "info");
+
       const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
       try {
         liveWs = new WebSocket(url);
       } catch(e) {
         setTranscriptText("Error", "WebSocket creation failed: " + e.message);
+        logDiag("WebSocket construction exception: " + e.message, "error");
         const icon = document.getElementById('voiceAgentIcon');
         if (icon) icon.classList.remove('sparkle-active');
         return;
       }
 
       liveWs.onopen = () => {
+        logDiag("WebSocket onopen fired. Constructing setup payload...", "info");
+
         // Construct tools array based on settings
         const tools = [];
         if (enableMaps) tools.push({ google_maps: {} });
@@ -616,6 +753,7 @@
         };
 
         liveWs.send(JSON.stringify(setupMessage));
+        logDiag("Setup message frame sent to Gemini.", "info");
       };
 
       liveWs.onmessage = async (event) => {
@@ -631,6 +769,7 @@
           if (payload.setupComplete) {
             isLiveSessionConnected = true;
             setTranscriptText("Gemini Live", "Connected & Listening... Ask for local places or directions!");
+            logDiag("Gemini setupComplete received. Initializing microphone...", "info");
             initMicrophoneCaptureLive();
             return;
           }
@@ -642,14 +781,13 @@
             if (content.interrupted) {
               clearPlaybackQueueLive();
               appendTranscriptText(" [Interrupted]");
+              logDiag("Barge-in interruption packet received.", "info");
             }
 
             if (content.modelTurn && content.modelTurn.parts) {
               for (const part of content.modelTurn.parts) {
                 if (part.text) {
                   appendTranscriptText(part.text);
-
-                  // Check if Gemini suggested a route or location to plot
                   checkAndTriggerRoutePlot(part.text);
                 }
                 if (part.inlineData && part.inlineData.data) {
@@ -662,15 +800,19 @@
               appendTranscriptText(content.outputTranscription.text);
             }
           }
-        } catch(e) {}
+        } catch(e) {
+          logDiag("Error parsing WebSocket message: " + e.message, "error");
+        }
       };
 
-      liveWs.onclose = () => {
+      liveWs.onclose = (e) => {
+        logDiag(`WebSocket onclose fired. Code: ${e.code}, Reason: ${e.reason || 'None'}`, "warning");
         disconnectWebSocketLive();
       };
 
       liveWs.onerror = (e) => {
         setTranscriptText("Error", "Live connection error occurred.");
+        logDiag("WebSocket onerror fired.", "error");
         disconnectWebSocketLive();
       };
     }
@@ -678,8 +820,10 @@
     /* --- REAL-TIME 16kHz PCM MICROPHONE CAPTURE --- */
     async function initMicrophoneCaptureLive() {
       try {
+        logDiag("Requesting user media audio stream...", "info");
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         liveMicStream = stream;
+        logDiag("Microphone media stream acquired successfully.", "info");
 
         liveAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         const source = liveAudioContext.createMediaStreamSource(stream);
@@ -700,16 +844,6 @@
 
           const base64AudioChunk = arrayBufferToBase64(pcmBuffer);
 
-          // Periodically append fresh GPS + Compass heading in user turn
-          let currentSpatialContext = "";
-          if (window.AndroidInterface) {
-            try {
-              const gps = JSON.parse(window.AndroidInterface.getGpsLocation());
-              const compass = JSON.parse(window.AndroidInterface.getCompassHeading());
-              currentSpatialContext = `[Live Spatial Update: Lat ${gps.lat}, Lng ${gps.lng}, Heading ${compass.degrees}° ${compass.direction}]`;
-            } catch(e) {}
-          }
-
           liveWs.send(JSON.stringify({
             realtimeInput: {
               audio: {
@@ -724,7 +858,8 @@
         liveAudioProcessor.connect(liveAudioContext.destination);
 
       } catch(e) {
-        setTranscriptText("Error", "Microphone access denied or unsupported.");
+        setTranscriptText("Error", "Microphone access denied or unsupported: " + e.message);
+        logDiag("getUserMedia failed: " + e.name + " (" + e.message + ")", "error");
       }
     }
 
@@ -764,7 +899,9 @@
         nextPlayTime += audioBuffer.duration;
         activeSources = activeSources.filter(item => item.endTime > currentTime);
 
-      } catch(e) {}
+      } catch(e) {
+        logDiag("Audio playback scheduling error: " + e.message, "error");
+      }
     }
 
     function clearPlaybackQueueLive() {
@@ -802,16 +939,17 @@
         try { liveWs.close(); } catch(e) {}
         liveWs = null;
       }
+      logDiag("Live session disconnected cleanly.", "info");
     }
 
     function checkAndTriggerRoutePlot(text) {
       if (window.AndroidInterface && text) {
-        // If Gemini response contains explicit location coordinates or destination intent
         const coordMatch = text.match(/destination\s*:\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/i);
         if (coordMatch) {
           const lat = parseFloat(coordMatch[1]);
           const lng = parseFloat(coordMatch[2]);
           window.AndroidInterface.plotRouteToDestination("Target Attraction", lat, lng);
+          logDiag(`Route plot command triggered for destination: ${lat}, ${lng}`, "info");
         }
       }
     }
