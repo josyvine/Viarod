@@ -50,6 +50,7 @@ import com.vineyard.viaro.app.R;
 import org.osmdroid.api.IMapController;
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
 import org.osmdroid.util.GeoPoint;
+import org.osmdroid.views.CustomZoomButtonsController;
 import org.osmdroid.views.MapView;
 import org.osmdroid.views.overlay.Marker;
 import org.osmdroid.views.overlay.Polyline;
@@ -108,6 +109,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         mMapView = findViewById(R.id.map_assistance_view);
         mMapView.setTileSource(TileSourceFactory.MAPNIK);
         mMapView.setMultiTouchControls(true);
+        mMapView.getZoomController().setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADE);
 
         mController = mMapView.getController();
         mController.setZoom(17.0);
@@ -169,7 +171,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
             }
         });
 
-        // GLITCH 1 & 4 FIX: Override WebChromeClient to grant WebRTC audio capture permissions
+        // WebChromeClient to grant WebRTC audio capture permissions
         mWebView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
@@ -249,7 +251,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
             mBridge.updateLocation(location);
         }
 
-        // GLITCH 3 FIX: Update User Location Marker with OnMarkerClickListener Popup
+        // User Location Marker with OnMarkerClickListener Popup
         if (mUserLocationMarker == null) {
             mUserLocationMarker = new Marker(mMapView);
             mUserLocationMarker.setIcon(getResources().getDrawable(R.drawable.ic_location, null));
@@ -291,7 +293,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
     }
 
     /**
-     * GLITCH 3 FIX: Shows a native location details dialog when clicking on the GPS location marker.
+     * Shows a native location details dialog when clicking on the GPS location marker.
      */
     private void showLocationDetailsDialog(
             String displayTitle,
