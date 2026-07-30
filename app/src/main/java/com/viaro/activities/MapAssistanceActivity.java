@@ -60,10 +60,8 @@ import org.osmdroid.views.overlay.Marker;
 import org.osmdroid.views.overlay.Polyline;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.concurrent.Executors;
 
 import retrofit2.Call;
@@ -91,9 +89,6 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
     private boolean mIsSimulationRunning = false;
     private final Handler mSimulationHandler = new Handler(Looper.getMainLooper());
     private Runnable mSimulationRunnable;
-
-    // Proximity geofencing & Visited locks for spoken alerts [1]
-    private final Set<String> mTriggeredWaypointIds = new HashSet<>();
 
     // Hardware GPS & Location Services
     private FusedLocationProviderClient mFusedLocationClient;
@@ -630,8 +625,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         if (mCurrentRoutePoints == null || mCurrentRoutePoints.size() < 2) return;
 
         if (mIsSimulationRunning) {
-            // Simply update speed parameter in real-time [1]
-            mSimulationSpeedMs = (speedKmh * 1000.0) / 3600.0;
+            // Simply update speed parameter in real-time
             return;
         }
 
@@ -703,84 +697,20 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 mSimulatedCarPosition = new GeoPoint(lat, lng);
                 mSimulatedCarMarker.setPosition(mSimulatedCarPosition);
 
-                // Align rotation and rotate the entire OSMDroid map to keep the car driving North [1]
+                // Align rotation and rotate the entire OSMDroid map to keep the car driving North
                 float segmentBearing = MapUtils.calculateBearing(currentPt, nextPt);
                 mSimulatedCarMarker.setRotation(360.0f - segmentBearing);
                 mMapView.setMapOrientation(-segmentBearing);
                 mController.setCenter(mSimulatedCarPosition);
 
-                // GEOFENCE PROXIMITY spoken alert triggers [1]
-                checkAndTriggerWaypointSpokenAlerts(mSimulatedCarPosition);
-
-                // Calculate remaining OSRM route distance [1]
-                double remainingDistance = calculateRemainingRouteDistance();
-
-                // Find nearest upcoming waypoint/bus stop along the remaining waypoints list [1]
-                String nextWaypointName = "None";
-                double nextWaypointDistance = 0.0;
-                if (mTenMeterWaypointMarkers != null && !mTenMeterWaypointMarkers.isEmpty()) {
-                    double minDistance = Double.MAX_VALUE;
-                    for (Marker marker : mTenMeterWaypointMarkers) {
-                        String stopName = marker.getTitle();
-                        if (stopName != null && !stopName.equals("Your Location") && !stopName.equals("Target Attraction") && !mTriggeredWaypointIds.contains(stopName)) {
-                            double d = mSimulatedCarPosition.distanceToAsDouble(marker.getPosition());
-                            if (d < minDistance) {
-                                minDistance = d;
-                                nextWaypointName = stopName;
-                                nextWaypointDistance = d;
-                            }
-                        }
-                    }
-                }
-
-                // Push dynamic remaining metrics and upcoming stops directly to the glassmorphic HTML panel [1]
-                final double finalDistance = remainingDistance;
-                final String finalWaypointName = nextWaypointName;
-                final double finalWaypointDistance = nextWaypointDistance;
-                runOnUiThread(() -> {
-                    if (mBridge != null) {
-                        mBridge.updateSimulationProgress(finalDistance, finalWaypointName, finalWaypointDistance);
-                    }
-                });
+                // Dynamically clear waypoint markers in close proximity of the driving simulation car
+                checkAndFilterWaypointsProximity(mSimulatedCarPosition);
 
                 mMapView.invalidate();
                 mSimulationHandler.postDelayed(this, 50); // Tick every 50ms (20 FPS)
             }
         };
         mSimulationHandler.postDelayed(mSimulationRunnable, 50);
-    }
-
-    /**
-     * Calculates the exact remaining path distance in meters from the simulated car to destination.
-     */
-    private double calculateRemainingRouteDistance() {
-        double dist = 0.0;
-        if (mCurrentRoutePoints != null && mCurrentRouteIndex < mCurrentRoutePoints.size() - 1) {
-            dist += mSimulatedCarPosition.distanceToAsDouble(mCurrentRoutePoints.get(mCurrentRouteIndex + 1));
-            for (int i = mCurrentRouteIndex + 1; i < mCurrentRoutePoints.size() - 1; i++) {
-                dist += mCurrentRoutePoints.get(i).distanceToAsDouble(mCurrentRoutePoints.get(i + 1));
-            }
-        }
-        return dist;
-    }
-
-    /**
-     * Proximity Geofencing Alerts: Checks if the car has entered a 15-meter radius of any stop [1].
-     */
-    private void checkAndTriggerWaypointSpokenAlerts(GeoPoint carPos) {
-        for (Marker marker : mTenMeterWaypointMarkers) {
-            String stopName = marker.getTitle();
-            if (stopName != null && !stopName.equals("Your Location") && !stopName.equals("Target Attraction") && !mTriggeredWaypointIds.contains(stopName)) {
-                double distMeters = carPos.distanceToAsDouble(marker.getPosition());
-                if (distMeters < 15.0) { // 15m proximity boundary [1]
-                    mTriggeredWaypointIds.add(stopName);
-                    
-                    // Dispatch spoken event to Gemini Live WebSocket turns [1]
-                    runOnUiThread(() -> mWebView.evaluateJavascript("if(window.onReachedWaypoint){ window.onReachedWaypoint('" + stopName.replace("'", "\\'") + "'); }", null));
-                    Log.d(TAG, "GEOFENCE TRIGGERED: Reached milestone: " + stopName + " | Spoken turn injected.");
-                }
-            }
-        }
     }
 
     /**
@@ -806,7 +736,6 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
      */
     public void clearRouteOverlay() {
         stopDriveSimulation();
-        mTriggeredWaypointIds.clear(); // Reset geofencing spoken locks [1]
         
         if (mActiveRoutePolyline != null) {
             mMapView.getOverlays().remove(mActiveRoutePolyline);
