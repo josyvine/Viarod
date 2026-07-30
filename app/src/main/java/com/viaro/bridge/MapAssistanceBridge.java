@@ -1,7 +1,5 @@
 package com.viaro.bridge;
 
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.location.Address;
@@ -44,11 +42,6 @@ public class MapAssistanceBridge {
 
     private float mCompassHeadingDegrees = 0.0f;
     private String mCompassCardinalDirection = "NORTH";
-
-    // Memory Cache for Real-Time Toy Car Simulation Progress [1]
-    private double mRemainingDistanceMeters = 0.0;
-    private String mNextWaypointName = "None";
-    private double mNextWaypointDistanceMeters = 0.0;
 
     public MapAssistanceBridge(Context context, WebView webView, MapAssistanceActivity activity) {
         this.mContext = context;
@@ -132,25 +125,6 @@ public class MapAssistanceBridge {
         this.mCompassCardinalDirection = cardinalDirection;
     }
 
-    /**
-     * Called by MapAssistanceActivity during active driving simulation ticks [1].
-     * Dynamically pushes simulation parameters to Javascript and caches them locally [1].
-     */
-    public void updateSimulationProgress(final double remainingDistance, final String nextWaypoint, final double nextWaypointDistance) {
-        this.mRemainingDistanceMeters = remainingDistance;
-        this.mNextWaypointName = nextWaypoint != null ? nextWaypoint : "None";
-        this.mNextWaypointDistanceMeters = nextWaypointDistance;
-
-        mHandler.post(() -> {
-            String escapedWaypoint = mNextWaypointName.replace("'", "\\'");
-            String jsCall = String.format(Locale.US,
-                    "if(window.updateSimulationProgress){ window.updateSimulationProgress(%f, '%s', %f); }",
-                    remainingDistance, escapedWaypoint, nextWaypointDistance
-            );
-            mWebView.evaluateJavascript(jsCall, null);
-        });
-    }
-
     // --- JS INTERFACE METHODS EXPOSED TO map_assistance.html ---
 
     @JavascriptInterface
@@ -176,22 +150,6 @@ public class MapAssistanceBridge {
             obj.put("direction", mCompassCardinalDirection);
         } catch (Exception e) {
             Log.e(TAG, "Error packaging Compass JSON", e);
-        }
-        return obj.toString();
-    }
-
-    /**
-     * JS INTERFACE: Pulls active toy car driving simulation statistics on demand [1].
-     */
-    @JavascriptInterface
-    public String getSimulationProgress() {
-        JSONObject obj = new JSONObject();
-        try {
-            obj.put("remainingDistance", mRemainingDistanceMeters);
-            obj.put("nextWaypoint", mNextWaypointName);
-            obj.put("nextWaypointDistance", mNextWaypointDistanceMeters);
-        } catch (Exception e) {
-            Log.e(TAG, "Error packaging simulation progress JSON", e);
         }
         return obj.toString();
     }
@@ -291,21 +249,6 @@ public class MapAssistanceBridge {
         mHandler.post(() -> {
             if (mActivity != null) {
                 mActivity.clearRouteOverlay();
-            }
-        });
-    }
-
-    /**
-     * JS TRIGGER: Native clipboard copy implementation to eliminate Webkit "Write Permission Denied" error [1].
-     */
-    @JavascriptInterface
-    public void copyToClipboard(final String text) {
-        mHandler.post(() -> {
-            ClipboardManager clipboard = (ClipboardManager) mContext.getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clip = ClipData.newPlainText("ViaroLogs", text);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(clip);
-                Toast.makeText(mContext, "Logs copied natively!", Toast.LENGTH_SHORT).show();
             }
         });
     }
