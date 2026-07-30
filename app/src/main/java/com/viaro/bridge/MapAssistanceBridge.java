@@ -2,6 +2,8 @@ package com.viaro.bridge;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.Location;
 import android.os.Handler;
 import android.os.Looper;
@@ -15,6 +17,11 @@ import com.viaro.utils.AppConstants;
 
 import org.json.JSONObject;
 
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 public class MapAssistanceBridge {
 
     private static final String TAG = "MapAssistanceBridge";
@@ -24,12 +31,14 @@ public class MapAssistanceBridge {
     private final MapAssistanceActivity mActivity;
     private final SharedPreferences mPrefs;
     private final Handler mHandler;
+    private final ExecutorService mGeocoderExecutor;
 
-    // Memory Cache for Hardware GPS and Compass Data
+    // Memory Cache for Hardware GPS, Address, and Compass Data
     private double mCurrentLat = 0.0;
     private double mCurrentLng = 0.0;
     private double mCurrentSpeed = 0.0;
     private double mCurrentAccuracy = 999.0;
+    private String mCurrentPlaceName = "Acquiring location name...";
 
     private float mCompassHeadingDegrees = 0.0f;
     private String mCompassCardinalDirection = "NORTH";
@@ -39,19 +48,73 @@ public class MapAssistanceBridge {
         this.mWebView = webView;
         this.mActivity = activity;
         this.mHandler = new Handler(Looper.getMainLooper());
+        this.mGeocoderExecutor = Executors.newSingleThreadExecutor();
         this.mPrefs = context.getSharedPreferences(AppConstants.PREF_NAME, Context.MODE_PRIVATE);
     }
 
     /**
      * Called by MapAssistanceActivity whenever new hardware GPS fix arrives.
+     * Performs background reverse-geocoding to resolve exact place name (town/city/street).
      */
     public void updateLocation(Location location) {
         if (location != null) {
-            this.mCurrentLat = location.getLatitude();
-            this.mCurrentLng = location.getLongitude();
+            double newLat = location.getLatitude();
+            double newLng = location.getLongitude();
+
+            // Check if coordinates shifted significantly to warrant background reverse-geocoding
+            boolean shouldGeocode = (mCurrentLat == 0.0 && mCurrentLng == 0.0) ||
+                    (Math.abs(newLat - mCurrentLat) > 0.0001 || Math.abs(newLng - mCurrentLng) > 0.0001);
+
+            this.mCurrentLat = newLat;
+            this.mCurrentLng = newLng;
             this.mCurrentSpeed = location.hasSpeed() ? (location.getSpeed() * 3.6) : 0.0; // Convert m/s to km/h
             this.mCurrentAccuracy = location.hasAccuracy() ? location.getAccuracy() : 50.0;
+
+            if (shouldGeocode) {
+                resolvePlaceNameInBackground(newLat, newLng);
+            }
         }
+    }
+
+    private void resolvePlaceNameInBackground(final double lat, final double lng) {
+        mGeocoderExecutor.execute(() -> {
+            String resolvedAddress = "Area near " + String.format(Locale.US, "%.4f, %.4f", lat, lng);
+            try {
+                Geocoder geocoder = new Geocoder(mContext, Locale.getDefault());
+                List<Address> addresses = geocoder.getFromLocation(lat, lng, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    Address addr = addresses.get(0);
+                    StringBuilder sb = new StringBuilder();
+
+                    if (addr.getLocality() != null && !addr.getLocality().isEmpty()) {
+                        sb.append(addr.getLocality());
+                    } else if (addr.getSubAdminArea() != null && !addr.getSubAdminArea().isEmpty()) {
+                        sb.append(addr.getSubAdminArea());
+                    }
+
+                    if (addr.getThoroughfare() != null && !addr.getThoroughfare().isEmpty()) {
+                        if (sb.length() > 0) sb.append(", ");
+                        sb.append(addr.getThoroughfare());
+                    }
+
+                    if (addr.getAdminArea() != null && !addr.getAdminArea().isEmpty()) {
+                        if (sb.length() > 0) sb.append(", ");
+                        sb.append(addr.getAdminArea());
+                    }
+
+                    if (sb.length() > 0) {
+                        resolvedAddress = sb.toString();
+                    } else if (addr.getMaxAddressLineIndex() >= 0) {
+                        resolvedAddress = addr.getAddressLine(0);
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Geocoder reverse lookup exception: " + e.getMessage());
+            }
+
+            final String finalPlace = resolvedAddress;
+            mHandler.post(() -> mCurrentPlaceName = finalPlace);
+        });
     }
 
     /**
@@ -72,6 +135,7 @@ public class MapAssistanceBridge {
             obj.put("lng", mCurrentLng);
             obj.put("speed", mCurrentSpeed);
             obj.put("accuracy", mCurrentAccuracy);
+            obj.put("placeName", mCurrentPlaceName); // ENRICHED: Human-readable town/street/district
         } catch (Exception e) {
             Log.e(TAG, "Error packaging GPS JSON", e);
         }
@@ -160,6 +224,9 @@ public class MapAssistanceBridge {
     }
 
     public void destroy() {
+        if (mGeocoderExecutor != null && !mGeocoderExecutor.isShutdown()) {
+            mGeocoderExecutor.shutdownNow();
+        }
         Log.d(TAG, "MapAssistanceBridge destroyed cleanly.");
     }
 }
