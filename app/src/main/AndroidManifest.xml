@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
     
+    <!-- Audio & Microphone Permissions for Gemini Live WebRTC Streaming -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    
     <!-- Physical Activity Recognition Permission for Step Gate (Android 10+) -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
     
@@ -88,14 +92,20 @@
             android:exported="false"
             android:theme="@style/Theme.MyApplication"/>
 
-        <!-- 9. Foreground Location Broadcasting Service -->
+        <!-- 9. Gemini Live Map Assistance Workspace -->
+        <activity
+            android:name="com.viaro.activities.MapAssistanceActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication"/>
+
+        <!-- 10. Foreground Location Broadcasting Service -->
         <service
             android:name="com.viaro.services.LocationService"
             android:foregroundServiceType="location"
             android:enabled="true"
             android:exported="false"/>
 
-        <!-- 10. Boot Receiver Listener -->
+        <!-- 11. Boot Receiver Listener -->
         <receiver
             android:name="com.viaro.receivers.BootReceiver"
             android:enabled="true"
