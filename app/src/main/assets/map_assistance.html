@@ -484,10 +484,6 @@
         <input type="checkbox" id="geminiMapsGroundingToggle" checked />
         <span>Google Maps Grounding (google_maps)</span>
       </label>
-      <label class="checkbox-group" style="margin-top: 6px;">
-        <input type="checkbox" id="geminiSearchGroundingToggle" checked />
-        <span>Google Search Grounding (google_search)</span>
-      </label>
     </div>
 
     <button class="save-btn" onclick="openDiagnosticModal()">View Terminal Diagnostic Log</button>
@@ -578,7 +574,6 @@
           document.getElementById('geminiModelSelect').value = window.AndroidInterface.getGeminiModel() || 'gemini-3.1-flash-live-preview';
           document.getElementById('geminiVoiceSelect').value = window.AndroidInterface.getGeminiVoice() || 'Puck';
           document.getElementById('geminiMapsGroundingToggle').checked = window.AndroidInterface.getMapGroundingEnabled();
-          document.getElementById('geminiSearchGroundingToggle').checked = window.AndroidInterface.getSearchGroundingEnabled();
           logDiag("Settings loaded from native AndroidInterface.", "info");
         } catch(e) {
           logDiag("Error loading settings from bridge: " + e.message, "error");
@@ -591,14 +586,12 @@
       const model = document.getElementById('geminiModelSelect').value;
       const voice = document.getElementById('geminiVoiceSelect').value;
       const mapsGround = document.getElementById('geminiMapsGroundingToggle').checked;
-      const searchGround = document.getElementById('geminiSearchGroundingToggle').checked;
 
       if (window.AndroidInterface) {
         window.AndroidInterface.saveGeminiApiKey(apiKey);
         window.AndroidInterface.saveGeminiModel(model);
         window.AndroidInterface.saveGeminiVoice(voice);
         window.AndroidInterface.saveMapGroundingEnabled(mapsGround);
-        window.AndroidInterface.saveSearchGroundingEnabled(searchGround);
         window.AndroidInterface.showToast("Map Assistance settings saved!");
         logDiag("Settings saved to native SharedPreferences.", "info");
       }
@@ -691,12 +684,11 @@
       const modelId = document.getElementById('geminiModelSelect').value;
       const voiceName = document.getElementById('geminiVoiceSelect').value;
       const enableMaps = document.getElementById('geminiMapsGroundingToggle').checked;
-      const enableSearch = document.getElementById('geminiSearchGroundingToggle').checked;
 
-      connectWebSocketLive(apiKey, modelId, voiceName, enableMaps, enableSearch);
+      connectWebSocketLive(apiKey, modelId, voiceName, enableMaps);
     }
 
-    function connectWebSocketLive(apiKey, modelId, voiceName, enableMaps, enableSearch) {
+    function connectWebSocketLive(apiKey, modelId, voiceName, enableMaps) {
       disconnectWebSocketLive();
 
       setTranscriptText("System", "Connecting to Gemini Live API...");
@@ -717,41 +709,48 @@
       liveWs.onopen = () => {
         logDiag("WebSocket onopen fired. Constructing setup payload...", "info");
 
-        // FIX: Model Compatibility Guard - Prevent Code 1007 WebSocket rejection on gemini-2.5-flash-native-audio
-        const isMapsSupported = !modelId.includes("2.5-flash-native-audio");
-        
-        // Construct tools array based on settings and model support
-        const tools = [];
-        if (enableMaps && isMapsSupported) {
-          tools.push({ google_maps: {} });
-        } else if (enableMaps && !isMapsSupported) {
-          logDiag("Omitted google_maps tool: Not supported on " + modelId + " to prevent Code 1007 rejection.", "warning");
-        }
-        
-        if (enableSearch) {
-          tools.push({ google_search: {} });
-        }
+        // DUAL-MODEL RELAY REGISTER: Define Custom Maps Search function for Gemini Live Model
+        const customTools = [
+          {
+            functionDeclarations: [
+              {
+                name: "find_places_on_google_maps",
+                description: "Queries Google Maps database to find nearby restaurants, landmarks, shops, or locations based on user GPS coordinates. Call this whenever the user asks for directions, places, or landmarks nearby.",
+                parameters: {
+                  type: "OBJECT",
+                  properties: {
+                    query: {
+                      type: "STRING",
+                      description: "The type of place or specific venue name to search for (e.g. 'bakery', 'Saffron Live Foods', 'restaurant')."
+                    }
+                  },
+                  required: ["query"]
+                }
+              }
+            ]
+          }
+        ];
 
-        // DYNAMIC NO-HARDCODING GPS & SPATIAL RULE ENFORCEMENT WITH REVERSE-GEOCODED PLACE NAME
-        let spatialPrompt = "You are a real-time local Map Assistance Voice AI assistant.\n";
+        // Retrieve current spatial parameters from Java bridge
+        let spatialPrompt = "You are a real-time local Map Assistance Voice AI copilot assistant.\n\n";
         if (window.AndroidInterface) {
           try {
             const gps = JSON.parse(window.AndroidInterface.getGpsLocation());
             const compass = JSON.parse(window.AndroidInterface.getCompassHeading());
             
-            spatialPrompt += `CRITICAL LIVE LOCATION & COMPASS RULES:\n`;
-            spatialPrompt += `- Your user's current live location is: ${gps.placeName || 'Unknown Area'} (Exact GPS Coordinates: Latitude ${gps.lat}, Longitude ${gps.lng}, Accuracy: ±${gps.accuracy.toFixed(1)}m).\n`;
-            spatialPrompt += `- You MUST perform all local searches and place recommendations strictly relative to this location (${gps.placeName || 'User GPS'}).\n`;
-            spatialPrompt += `- Do NOT guess, assume, or hallucinate cities, streets, or landmarks (such as Aluva, Palace Road, etc.) outside of your user's immediate GPS radius.\n`;
-            spatialPrompt += `- User Facing Compass Direction: ${compass.degrees.toFixed(0)}° (${compass.direction}). When asked for places to their West, South, East, or North, filter options relative to their current orientation (${compass.direction}).\n`;
+            spatialPrompt += `CRITICAL LIVE LOCATION & COMPASS:\n`;
+            spatialPrompt += `- Your user's current live location is: ${gps.placeName || 'Mala, Thrissur, Kerala, India'} (Exact GPS: Latitude ${gps.lat}, Longitude ${gps.lng}).\n`;
+            spatialPrompt += `- User Facing Direction: ${compass.degrees.toFixed(0)}° (${compass.direction}).\n\n`;
           } catch(e) {
             logDiag("Error fetching live GPS/Compass bridge data: " + e.message, "error");
           }
         }
 
-        spatialPrompt += `\nOPERATIONAL NAVIGATION DIRECTIVES:\n`;
-        spatialPrompt += `1. Always prioritize local knowledge near the user's live GPS location first before out-of-premises information.\n`;
-        spatialPrompt += `2. If the user asks to navigate or find a place, respond clearly in audio and instruct the map to plot route markers.\n`;
+        spatialPrompt += `BEHAVIORAL DIRECTIVES:\n`;
+        spatialPrompt += `1. You are a crisp navigation copilot. Keep responses extremely brief (maximum 1-2 short, simple sentences).\n`;
+        spatialPrompt += `2. NEVER write chatty prefaces or long introductions.\n`;
+        spatialPrompt += `3. Always prioritize immediate local knowledge near the user's GPS coordinates.\n`;
+        spatialPrompt += `4. If the user asks for places, directions, or landmarks, you MUST immediately call 'find_places_on_google_maps' tool with the query.\n`;
 
         const setupMessage = {
           setup: {
@@ -767,14 +766,14 @@
             systemInstruction: {
               parts: [{ text: spatialPrompt }]
             },
-            tools: tools.length > 0 ? tools : undefined,
+            tools: customTools, // Registered function calling tool
             inputAudioTranscription: {},
             outputAudioTranscription: {}
           }
         };
 
         liveWs.send(JSON.stringify(setupMessage));
-        logDiag("Setup message frame sent to Gemini with dynamic live GPS coordinates and place name.", "info");
+        logDiag("Setup message frame sent to Gemini with custom navigation function declarations.", "info");
       };
 
       liveWs.onmessage = async (event) => {
@@ -795,6 +794,18 @@
             return;
           }
 
+          // DUAL-MODEL RELAY: Intercept Client-Side Function Call from Gemini Live
+          if (payload.toolCall && payload.toolCall.functionCalls) {
+            const calls = payload.toolCall.functionCalls;
+            for (const call of calls) {
+              if (call.name === "find_places_on_google_maps") {
+                const searchQuery = call.args.query;
+                logDiag(`Gemini Live triggered Maps search: "${searchQuery}". Executing background standard model...`, "info");
+                executeBackgroundMapsQuery(searchQuery, call.id);
+              }
+            }
+          }
+
           if (payload.serverContent) {
             const content = payload.serverContent;
 
@@ -809,7 +820,6 @@
               for (const part of content.modelTurn.parts) {
                 if (part.text) {
                   appendTranscriptText(part.text);
-                  checkAndTriggerRoutePlot(part.text);
                 }
                 if (part.inlineData && part.inlineData.data) {
                   scheduleAudioChunkPlayLive(part.inlineData.data);
@@ -836,6 +846,121 @@
         logDiag("WebSocket onerror fired.", "error");
         disconnectWebSocketLive();
       };
+    }
+
+    /**
+     * DUAL-MODEL RELAY EXECUTOR:
+     * Calls standard gemini-2.5-flash with native google_maps grounding in the background [1].
+     * Obtains coordinates, draws route in OSMDroid, and returns results to Gemini Live session.
+     */
+    async function executeBackgroundMapsQuery(query, callId) {
+      let apiKey = document.getElementById('geminiApiKeyInput').value.trim();
+      if (!apiKey && window.AndroidInterface) {
+        apiKey = window.AndroidInterface.getGeminiApiKey();
+      }
+
+      let gps = { lat: 10.2381, lng: 76.2635, placeName: "Mala, Thrissur, Kerala, India" };
+      if (window.AndroidInterface) {
+        try {
+          gps = JSON.parse(window.AndroidInterface.getGpsLocation());
+        } catch(e) {}
+      }
+
+      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      
+      const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
+                         `Provide the exact name, rating, address, and coordinates. ` +
+                         `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. For example: [PLOT: Saffron Live Foods | 10.2385, 76.2640]`;
+
+      const requestPayload = {
+        contents: [
+          {
+            parts: [
+              { text: promptText }
+            ]
+          }
+        ],
+        tools: [
+          { google_maps: {} } // Pure Google Maps Search Grounding
+        ]
+      };
+
+      logDiag(`Dispatching background Maps Grounding request for query: "${query}" near ${gps.placeName}...`, "info");
+
+      try {
+        const response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestPayload)
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP Error ${response.status}`);
+        }
+
+        const data = await response.json();
+        const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
+        logDiag(`Background Maps search complete: "${textResponse.substring(0, 100)}..."`, "info");
+
+        // Parse coordinates and plot OSRM route in native map
+        const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
+        let routeMsg = "No exact coordinates could be parsed.";
+        
+        if (plotMatch && window.AndroidInterface) {
+          const destName = plotMatch[1].trim();
+          const lat = parseFloat(plotMatch[2]);
+          const lng = parseFloat(plotMatch[3]);
+          
+          window.AndroidInterface.plotRouteToDestination(destName, lat, lng);
+          routeMsg = `The route to ${destName} (${lat}, ${lng}) has been plotted with 10-meter markers on the OSMDroid map.`;
+          logDiag(`Parsed coordinates: ${destName} at (${lat}, ${lng}). Drawing OSMDroid route...`, "info");
+        }
+
+        // Return resolved location payload back to Gemini Live Websocket session
+        if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+          const responseMessage = {
+            toolResponse: {
+              functionResponses: [
+                {
+                  id: callId,
+                  response: {
+                    output: {
+                      success: true,
+                      details: textResponse,
+                      mapRoutingStatus: routeMsg
+                    }
+                  }
+                }
+              ]
+            }
+          };
+          liveWs.send(JSON.stringify(responseMessage));
+          logDiag("Maps grounding response relayed back to active Gemini Live session.", "info");
+        }
+
+      } catch(e) {
+        logDiag("Background Maps Grounding query failed: " + e.message, "error");
+        
+        // Return failure message so Live model doesn't hang waiting
+        if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+          const responseMessage = {
+            toolResponse: {
+              functionResponses: [
+                {
+                  id: callId,
+                  response: {
+                    output: {
+                      success: false,
+                      error: e.message
+                    }
+                  }
+                }
+              ]
+            }
+          };
+          liveWs.send(JSON.stringify(responseMessage));
+        }
+      }
     }
 
     /* --- REAL-TIME 16kHz PCM MICROPHONE CAPTURE --- */
@@ -961,18 +1086,6 @@
         liveWs = null;
       }
       logDiag("Live session disconnected cleanly.", "info");
-    }
-
-    function checkAndTriggerRoutePlot(text) {
-      if (window.AndroidInterface && text) {
-        const coordMatch = text.match(/destination\s*:\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/i);
-        if (coordMatch) {
-          const lat = parseFloat(coordMatch[1]);
-          const lng = parseFloat(coordMatch[2]);
-          window.AndroidInterface.plotRouteToDestination("Target Attraction", lat, lng);
-          logDiag(`Route plot command triggered for destination: ${lat}, ${lng}`, "info");
-        }
-      }
     }
 
     // Helper Conversion Utilities
