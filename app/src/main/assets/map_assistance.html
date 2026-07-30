@@ -21,7 +21,7 @@
       width: 100vw;
       height: 100vh;
       overflow: hidden;
-      pointer-events: none; /* GLITCH FIX: Let map gestures (zoom/pan) pass through */
+      pointer-events: none; /* Let map gestures (zoom/pan) pass through to OSMDroid */
     }
 
     /* Floating Top Status Header */
@@ -326,7 +326,7 @@
       background: #0369a1;
     }
 
-    /* Diagnostic Log Terminal Modal */
+    /* Diagnostic Terminal Modal */
     .diagnostic-modal {
       position: fixed;
       top: 0;
@@ -621,7 +621,8 @@
 
           const el = document.getElementById('headerSpatialText');
           if (el) {
-            el.textContent = `GPS: ${gps.lat.toFixed(4)}, ${gps.lng.toFixed(4)} | Facing: ${compass.degrees.toFixed(0)}° ${compass.direction}`;
+            const placeStr = gps.placeName ? ` (${gps.placeName})` : '';
+            el.textContent = `GPS: ${gps.lat.toFixed(4)}, ${gps.lng.toFixed(4)}${placeStr} | Facing: ${compass.degrees.toFixed(0)}° ${compass.direction}`;
           }
         } catch(e) {}
       }
@@ -731,7 +732,7 @@
           tools.push({ google_search: {} });
         }
 
-        // FIX: DYNAMIC NO-HARDCODING GPS & SPATIAL RULE ENFORCEMENT
+        // DYNAMIC NO-HARDCODING GPS & SPATIAL RULE ENFORCEMENT WITH REVERSE-GEOCODED PLACE NAME
         let spatialPrompt = "You are a real-time local Map Assistance Voice AI assistant.\n";
         if (window.AndroidInterface) {
           try {
@@ -739,8 +740,8 @@
             const compass = JSON.parse(window.AndroidInterface.getCompassHeading());
             
             spatialPrompt += `CRITICAL LIVE LOCATION & COMPASS RULES:\n`;
-            spatialPrompt += `- Your user's current live GPS coordinates are Latitude: ${gps.lat}, Longitude: ${gps.lng} (Accuracy: ±${gps.accuracy.toFixed(1)}m).\n`;
-            spatialPrompt += `- You MUST perform all local searches and place recommendations strictly relative to Latitude ${gps.lat}, Longitude ${gps.lng}.\n`;
+            spatialPrompt += `- Your user's current live location is: ${gps.placeName || 'Unknown Area'} (Exact GPS Coordinates: Latitude ${gps.lat}, Longitude ${gps.lng}, Accuracy: ±${gps.accuracy.toFixed(1)}m).\n`;
+            spatialPrompt += `- You MUST perform all local searches and place recommendations strictly relative to this location (${gps.placeName || 'User GPS'}).\n`;
             spatialPrompt += `- Do NOT guess, assume, or hallucinate cities, streets, or landmarks (such as Aluva, Palace Road, etc.) outside of your user's immediate GPS radius.\n`;
             spatialPrompt += `- User Facing Compass Direction: ${compass.degrees.toFixed(0)}° (${compass.direction}). When asked for places to their West, South, East, or North, filter options relative to their current orientation (${compass.direction}).\n`;
           } catch(e) {
@@ -749,7 +750,7 @@
         }
 
         spatialPrompt += `\nOPERATIONAL NAVIGATION DIRECTIVES:\n`;
-        spatialPrompt += `1. Always prioritize local knowledge near the user's live GPS coordinates first before out-of-premises information.\n`;
+        spatialPrompt += `1. Always prioritize local knowledge near the user's live GPS location first before out-of-premises information.\n`;
         spatialPrompt += `2. If the user asks to navigate or find a place, respond clearly in audio and instruct the map to plot route markers.\n`;
 
         const setupMessage = {
@@ -773,7 +774,7 @@
         };
 
         liveWs.send(JSON.stringify(setupMessage));
-        logDiag("Setup message frame sent to Gemini with dynamic live GPS coordinates.", "info");
+        logDiag("Setup message frame sent to Gemini with dynamic live GPS coordinates and place name.", "info");
       };
 
       liveWs.onmessage = async (event) => {
