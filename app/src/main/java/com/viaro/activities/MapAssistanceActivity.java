@@ -657,8 +657,16 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     return;
                 }
 
-                // Distance the car should travel in 50ms tick [1]
-                double stepMeters = mSimulationSpeedMs * 0.05; 
+                // Dynamic Zoom-Compensated Velocity Algorithm to make speed feel realistic on zoom out [1]
+                double currentZoom = mMapView.getZoomLevelDouble();
+                double zoomDifference = 17.5 - currentZoom;
+                double velocityMultiplier = 1.0;
+                if (zoomDifference > 0) {
+                    velocityMultiplier = Math.pow(1.6, zoomDifference);
+                }
+
+                // Distance the car should travel in 50ms tick (incorporating dynamic multiplier) [1]
+                double stepMeters = mSimulationSpeedMs * 0.05 * velocityMultiplier; 
                 GeoPoint currentPt = mSimulatedCarPosition;
                 GeoPoint nextPt = mCurrentRoutePoints.get(mCurrentRouteIndex + 1);
 
@@ -689,7 +697,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 mSimulatedCarPosition = new GeoPoint(lat, lng);
                 mSimulatedCarMarker.setPosition(mSimulatedCarPosition);
 
-                // GLITCH FIX: Align rotation and rotate the entire OSMDroid map to keep the car driving North
+                // Align rotation and rotate the entire OSMDroid map to keep the car driving North
                 float segmentBearing = MapUtils.calculateBearing(currentPt, nextPt);
                 mSimulatedCarMarker.setRotation(360.0f - segmentBearing);
                 mMapView.setMapOrientation(-segmentBearing);
