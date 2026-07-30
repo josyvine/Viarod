@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0F172A">
+
+    <!-- 1. Full-Screen OSMDroid Interactive Map View -->
+    <org.osmdroid.views.MapView
+        android:id="@+id/map_assistance_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 2. Native Floating Map Controls Container (Top Right) -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:layout_marginEnd="16dp"
+        android:orientation="vertical"
+        android:elevation="6dp">
+
+      <!-- Recenter GPS Location Button -->
+      <ImageButton
+          android:id="@+id/btn_recenter_gps"
+          android:layout_width="48dp"
+          android:layout_height="48dp"
+          android:background="@drawable/card_background"
+          android:backgroundTint="#0F172A"
+          android:contentDescription="Recenter GPS"
+          android:elevation="4dp"
+          android:padding="12dp"
+          android:scaleType="fitCenter"
+          android:src="@drawable/ic_location"
+          app:tint="#38BDF8" />
+
+      <!-- Reset Compass Orientation Button -->
+      <ImageButton
+          android:id="@+id/btn_reset_compass"
+          android:layout_width="48dp"
+          android:layout_height="48dp"
+          android:layout_marginTop="12dp"
+          android:background="@drawable/card_background"
+          android:backgroundTint="#0F172A"
+          android:contentDescription="Reset Compass Orientation"
+          android:elevation="4dp"
+          android:padding="12dp"
+          android:scaleType="fitCenter"
+          android:src="@drawable/ic_navigation"
+          app:tint="#22C55E" />
+    </LinearLayout>
+
+    <!-- 3. Embedded Full-Screen WebView Overlay for map_assistance.html -->
+    <WebView
+        android:id="@+id/webview_map_assistance"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent" />
+
+</RelativeLayout>
