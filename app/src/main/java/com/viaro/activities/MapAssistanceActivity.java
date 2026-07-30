@@ -13,13 +13,17 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.ImageButton;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.webkit.WebViewAssetLoader;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -31,7 +35,6 @@ import com.viaro.network.ApiClient;
 import com.viaro.utils.AppConstants;
 import com.viaro.utils.LocationHelper;
 import com.viaro.utils.MapUtils;
-import com.viaro.utils.PuterWebViewClient;
 import com.viaro.utils.SpatialContextManager;
 import com.vineyard.viaro.app.R;
 
@@ -141,8 +144,18 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         mBridge = new MapAssistanceBridge(this, mWebView, this);
         mWebView.addJavascriptInterface(mBridge, AppConstants.JS_BRIDGE_NAME);
 
-        // Attach custom WebViewClient for virtual HTTPS asset routing
-        mWebView.setWebViewClient(new PuterWebViewClient(this));
+        // Inline WebViewAssetLoader for virtual HTTPS asset routing
+        final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+                .setDomain("appassets.androidplatform.net")
+                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .build();
+
+        mWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                return assetLoader.shouldInterceptRequest(request.getUrl());
+            }
+        });
 
         // Make background transparent so map is visible
         mWebView.setBackgroundColor(Color.TRANSPARENT);
