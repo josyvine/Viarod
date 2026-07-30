@@ -405,7 +405,7 @@
     /* --- TOY CAR 3D PERSPECTIVE AVATAR & DASHBOARD STYLES --- */
     .car-map-avatar {
       position: fixed;
-      bottom: 250px;
+      bottom: 260px; /* Offset upward to make space for the larger transparent card */
       left: 50%;
       transform: translateX(-50%) rotateX(46deg) scale(0.85);
       width: 130px;
@@ -485,24 +485,25 @@
       100% { opacity: 0; transform: translate(-50%, 40px) scale(3.0); }
     }
 
-    /* Simulation Control Dashboard Overlay Panel */
+    /* ENHANCED: Larger, Translucent Glassmorphic Simulation Control Dashboard Overlay Panel */
     .simulation-dashboard {
       position: fixed;
       bottom: 90px;
       left: 15px;
       right: 15px;
-      background: rgba(15, 23, 42, 0.95);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(56, 189, 248, 0.25);
+      background: rgba(15, 23, 42, 0.85); /* Premium Translucent Background */
+      backdrop-filter: blur(12px); /* Blur behind the card */
+      border: 1px solid rgba(56, 189, 248, 0.25); /* Cyan glow borders */
       border-radius: 20px;
-      padding: 10px 16px;
+      padding: 16px 20px; /* Larger padding for readability */
       display: none; /* Shown dynamically when route is active */
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
       pointer-events: auto;
       z-index: 100;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
       color: #fff;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .sim-row {
@@ -522,10 +523,10 @@
     }
 
     .sim-speed-box select {
-      padding: 4px 8px;
+      padding: 6px 10px;
       background: #1e293b;
       border: 1px solid #334155;
-      border-radius: 6px;
+      border-radius: 8px;
       color: #fff;
       outline: none;
     }
@@ -537,6 +538,34 @@
       cursor: pointer;
       border: 2px solid rgba(255, 255, 255, 0.8);
       box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+
+    /* COMPASS ADJACENT MINIMIZATION BUTTON STYLING */
+    .sim-minimized-card {
+      position: fixed;
+      top: 140px; /* Vertically positioned right beside the native compass */
+      right: 76dp; /* Safe offset left of the vertical compass cluster */
+      right: 76px;
+      width: 44px;
+      height: 44px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 50%;
+      display: none; /* Shown programmatically */
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 100;
+      pointer-events: auto;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      color: #38bdf8;
+      transition: all 0.2s ease-in-out;
+    }
+
+    .sim-minimized-card:active {
+      transform: scale(0.9);
+      background: rgba(15, 23, 42, 0.95);
     }
   </style>
 </head>
@@ -562,17 +591,25 @@
     <div id="transcriptBody">Connecting to Gemini Live...</div>
   </div>
 
-  <!-- Real-Time Simulated Drive Dashboard Card -->
+  <!-- Real-Time Simulated Drive Dashboard Card (ENHANCED GLASSMORPHIC UI) -->
   <div class="simulation-dashboard" id="simDashboard">
     <div class="sim-row">
       <div style="display:flex; align-items:center; gap:8px;">
-        <span class="material-symbols-outlined" style="color:#38bdf8;">directions_car</span>
-        <span style="font-size:13px; font-weight:bold;" id="simStatusLabel">Toy Car Simulation Idle</span>
+        <span class="material-symbols-outlined" style="color:#38bdf8; font-size: 22px;">directions_car</span>
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span style="font-size:14px; font-weight:bold;" id="simStatusLabel">Toy Car Simulation Idle</span>
+          <span style="font-size:11px; color:#94a3b8;" id="simDistanceTimeLabel">ETA: -- min | -- km remaining</span>
+        </div>
       </div>
-      <button class="save-btn" id="btnSimPlayPause" onclick="toggleSimPlayPause()" style="margin:0; padding:6px 14px; font-size:11px;">▶ Start Drive</button>
+      
+      <div style="display:flex; align-items:center; gap:8px;">
+        <!-- Minimize icon collapsing the board into a bubble beside compass -->
+        <span class="material-symbols-outlined" style="cursor:pointer; font-size:22px; color:#94a3b8; padding:4px;" onclick="minimizeSimulationDashboard()" title="Minimize Panel">minimize</span>
+        <button class="save-btn" id="btnSimPlayPause" onclick="toggleSimPlayPause()" style="margin:0; padding:8px 16px; font-size:12px;">▶ Start Drive</button>
+      </div>
     </div>
 
-    <div class="sim-row" style="border-top:1px solid rgba(255,255,255,0.1); padding-top:8px;">
+    <div class="sim-row" style="border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">
       <!-- Speed selector strictly between 5 km/h to 80 km/h -->
       <div class="sim-speed-box">
         <label for="simSpeedSelect">Sim Speed:</label>
@@ -591,17 +628,22 @@
       </div>
 
       <!-- Synthesizer Audio Engine Toggle Button -->
-      <button class="header-btn" id="btnSimSound" onclick="toggleEngineSound()" style="border-radius:18px; width:auto; padding:0 12px; font-size:10px; font-weight:bold;" title="Synthesizer Sound">
+      <button class="header-btn" id="btnSimSound" onclick="toggleEngineSound()" style="border-radius:18px; width:auto; padding:0 14px; height:34px; font-size:11px; font-weight:bold;" title="Synthesizer Sound">
         🔇 Sound: OFF
       </button>
 
       <!-- Dynamic Paint Picker -->
-      <div style="display:flex; gap:6px;">
+      <div style="display:flex; gap:8px;">
         <div class="color-dot" style="background:#e62222;" onclick="setCarColor('#e62222', '#8b0000', '#ff6b6b')"></div>
         <div class="color-dot" style="background:#2563eb;" onclick="setCarColor('#2563eb', '#1e3a8a', '#60a5fa')"></div>
         <div class="color-dot" style="background:#10b981;" onclick="setCarColor('#10b981', '#064e3b', '#34d399')"></div>
       </div>
     </div>
+  </div>
+
+  <!-- COMPASS ADJACENT MINIMIZED BUBBLE CARD -->
+  <div class="sim-minimized-card" id="simMinimizedCard" onclick="restoreSimulationDashboard()" title="Expand Simulation Panel">
+    <span class="material-symbols-outlined" style="font-size: 22px;">directions_car</span>
   </div>
 
   <!-- Bottom Floating Control Bar -->
@@ -1130,7 +1172,7 @@
 
     /**
      * DUAL-MODEL RELAY EXECUTOR:
-     * Calls standard gemini-2.5-flash with native google_maps grounding in the background [1].
+     * Calls standard gemini-3.5-flash-lite with native google_maps grounding in the background.
      * Obtains coordinates, draws route in OSMDroid, and returns results to Gemini Live session.
      */
     async function executeBackgroundMapsQuery(query, callId) {
@@ -1147,7 +1189,7 @@
       }
 
       const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
-      
+
       const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
                          `Provide the exact name, rating, address, and coordinates. ` +
                          `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. For example: [PLOT: Saffron Live Foods | 10.2385, 76.2640]`;
@@ -1180,17 +1222,17 @@
 
         const data = await response.json();
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
-        logDiag(`Background Maps search complete: "${textResponse.substring(0, 100)}..."`, "info");
+        logDiag("Background Maps search complete: " + textResponse.substring(0, 100) + "...", "info");
 
         // Parse coordinates and plot OSRM route in native map
         const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
         let routeMsg = "No exact coordinates could be parsed.";
-        
+
         if (plotMatch && window.AndroidInterface) {
           const destName = plotMatch[1].trim();
           const lat = parseFloat(plotMatch[2]);
           const lng = parseFloat(plotMatch[3]);
-          
+
           window.AndroidInterface.plotRouteToDestination(destName, lat, lng);
           routeMsg = `The route to ${destName} (${lat}, ${lng}) has been plotted with 10-meter markers on the OSMDroid map.`;
           logDiag(`Parsed coordinates: ${destName} at (${lat}, ${lng}). Drawing OSMDroid route...`, "info");
@@ -1223,7 +1265,7 @@
 
       } catch(e) {
         logDiag("Background Maps Grounding query failed: " + e.message, "error");
-        
+
         // Return failure message so Live model doesn't hang waiting
         if (liveWs && liveWs.readyState === WebSocket.OPEN) {
           const responseMessage = {
@@ -1403,7 +1445,7 @@
       document.getElementById('simDashboard').style.display = 'none';
       document.getElementById('carMapAvatar').style.display = 'none';
       logDiag("Hidden Toy Car and Simulation controls.", "info");
-      
+
       // Stop sound if active
       if (soundEnabled) {
         toggleEngineSound();
@@ -1509,7 +1551,7 @@
       const now = audioCtx.currentTime;
       // Map 5km/h to 80km/h linearly to audio synthesizer values
       const ratio = (speedKmh - 5.0) / 75.0; // 0.0 to 1.0 range
-      
+
       const pitch = 45 + (ratio * 55);
       const cutoff = 180 + (ratio * 320);
       const volume = 0.22 + (ratio * 0.06);
@@ -1524,7 +1566,7 @@
     function toggleSimPlayPause() {
       const btn = document.getElementById('btnSimPlayPause');
       const label = document.getElementById('simStatusLabel');
-      
+
       isSimulatingDrive = !isSimulatingDrive;
 
       if (isSimulatingDrive) {
@@ -1532,7 +1574,7 @@
         btn.style.background = "#ef4444";
         label.innerText = `Simulation Active: Driving at ${simulationSpeedKmh} km/h`;
         logDiag(`Starting real-time map drive simulation at ${simulationSpeedKmh} km/h...`, "info");
-        
+
         if (window.AndroidInterface && window.AndroidInterface.startDriveSimulation) {
           window.AndroidInterface.startDriveSimulation(simulationSpeedKmh);
         }
@@ -1551,11 +1593,11 @@
     function onSimSpeedChanged(val) {
       simulationSpeedKmh = parseFloat(val);
       updateEngineSound(simulationSpeedKmh);
-      
+
       if (isSimulatingDrive) {
         document.getElementById('simStatusLabel').innerText = `Simulation Active: Driving at ${simulationSpeedKmh} km/h`;
         logDiag(`Updating live driving simulation speed to ${simulationSpeedKmh} km/h.`, "info");
-        
+
         if (window.AndroidInterface && window.AndroidInterface.startDriveSimulation) {
           window.AndroidInterface.startDriveSimulation(simulationSpeedKmh);
         }
@@ -1565,15 +1607,15 @@
     // Triggered externally by Android native GestureDetector upon double-tap to reset/clear overlays
     window.onDisplayDoubleTapped = function() {
       logDiag("Android GestureDetector: Double-tap registered. Clearing all map routes and ending active simulation...", "system");
-      
+
       // Reset local simulation states
       if (isSimulatingDrive) {
         toggleSimPlayPause(); // Toggle back to idle
       }
-      
+
       // Hide dashboards
       hideSimulationControls();
-      
+
       // Clear OSRM route in native code
       if (window.AndroidInterface && window.AndroidInterface.clearRouteOverlay) {
         window.AndroidInterface.clearRouteOverlay();
