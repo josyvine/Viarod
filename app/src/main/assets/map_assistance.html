@@ -6,6 +6,13 @@
   <title>Map Assistance - Gemini Live Engine</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <style>
+    :root {
+      --car-color-primary: #e62222;
+      --car-color-dark: #8b0000;
+      --car-color-highlight: #ff6b6b;
+      --speed-mult: 0;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -1123,7 +1130,7 @@
 
     /**
      * DUAL-MODEL RELAY EXECUTOR:
-     * Calls standard gemini-3.5-flash-lite with native google_maps grounding in the background [1].
+     * Calls standard gemini-2.5-flash with native google_maps grounding in the background [1].
      * Obtains coordinates, draws route in OSMDroid, and returns results to Gemini Live session.
      */
     async function executeBackgroundMapsQuery(query, callId) {
@@ -1139,8 +1146,7 @@
         } catch(e) {}
       }
 
-      // HIGH-QUOTA REPLACEMENT: Route background search queries through gemini-3.5-flash-lite [1]
-      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
       
       const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
                          `Provide the exact name, rating, address, and coordinates. ` +
@@ -1575,17 +1581,4 @@
     };
   </script>
 </body>
-</html>Please update 
-
-
-
-
-
-Explain and first check any issues remains 
-
-No repeated answers please 
-
-
-Don't omitted or compressed 
-
-I'm waiting
+</html>
