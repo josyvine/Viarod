@@ -15,6 +15,7 @@ import android.location.LocationListener;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.view.View;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
@@ -109,8 +110,6 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         mMapView = findViewById(R.id.map_assistance_view);
         mMapView.setTileSource(TileSourceFactory.MAPNIK);
         mMapView.setMultiTouchControls(true);
-        
-        // BUILD ERROR FIX: Changed SHOW_AND_FADE to SHOW_AND_FADEOUT (OSMDroid enum symbol name)
         mMapView.getZoomController().setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT);
 
         mController = mMapView.getController();
@@ -186,6 +185,15 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                         request.deny();
                     }
                 });
+            }
+        });
+
+        // GLITCH FIX: Forward touch and zoom gestures from the WebView straight to OSMDroid MapView
+        mWebView.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                mMapView.dispatchTouchEvent(event);
+                return false;
             }
         });
 
