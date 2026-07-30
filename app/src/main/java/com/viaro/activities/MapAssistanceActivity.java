@@ -3,25 +3,34 @@ package com.viaro.activities;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.webkit.WebViewAssetLoader;
 
@@ -47,6 +56,8 @@ import org.osmdroid.views.overlay.Polyline;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.Executors;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -69,6 +80,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
     private LocationCallback mLocationCallback;
     private LocationListener mNativeLocationListener;
     private Location mCurrentLocation;
+    private long mLastLocationUpdateTimeMs = 0;
 
     // Hardware Compass & Orientation Sensors
     private SensorManager mSensorManager;
@@ -157,6 +169,22 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
             }
         });
 
+        // GLITCH 1 & 4 FIX: Override WebChromeClient to grant WebRTC audio capture permissions
+        mWebView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> {
+                    try {
+                        request.grant(request.getResources());
+                        Log.d(TAG, "WebRTC Permission Granted for Gemini Live Audio Capture");
+                    } catch (Exception e) {
+                        Log.e(TAG, "Failed to grant WebRTC audio permission: " + e.getMessage());
+                        request.deny();
+                    }
+                });
+            }
+        });
+
         // Make background transparent so map is visible
         mWebView.setBackgroundColor(Color.TRANSPARENT);
         mWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
@@ -211,6 +239,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         if (location == null) return;
 
         mCurrentLocation = location;
+        mLastLocationUpdateTimeMs = System.currentTimeMillis();
         double lat = location.getLatitude();
         double lng = location.getLongitude();
         GeoPoint currentPos = new GeoPoint(lat, lng);
@@ -220,12 +249,28 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
             mBridge.updateLocation(location);
         }
 
-        // Update User Location Marker on Map
+        // GLITCH 3 FIX: Update User Location Marker with OnMarkerClickListener Popup
         if (mUserLocationMarker == null) {
             mUserLocationMarker = new Marker(mMapView);
             mUserLocationMarker.setIcon(getResources().getDrawable(R.drawable.ic_location, null));
             mUserLocationMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
             mUserLocationMarker.setTitle("Your Location");
+            mUserLocationMarker.setInfoWindow(null); // Disable default popup balloon
+
+            // Attach marker click listener to show exact location details dialog
+            mUserLocationMarker.setOnMarkerClickListener((marker, mapView) -> {
+                showLocationDetailsDialog(
+                        "Your GPS Position",
+                        marker.getPosition(),
+                        mCurrentLocation != null && mCurrentLocation.hasSpeed() ? mCurrentLocation.getSpeed() : 0.0f,
+                        mCurrentCompassHeading,
+                        mCurrentLocation != null && mCurrentLocation.hasAltitude() ? mCurrentLocation.getAltitude() : 0.0,
+                        mCurrentLocation != null && mCurrentLocation.hasAccuracy() ? mCurrentLocation.getAccuracy() : 10.0f,
+                        mLastLocationUpdateTimeMs
+                );
+                return true;
+            });
+
             mMapView.getOverlays().add(mUserLocationMarker);
             mUserLocationMarker.setPosition(currentPos);
             mController.animateTo(currentPos);
@@ -243,6 +288,122 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         if (mTargetDestination != null) {
             checkAndFilterWaypointsProximity(currentPos);
         }
+    }
+
+    /**
+     * GLITCH 3 FIX: Shows a native location details dialog when clicking on the GPS location marker.
+     */
+    private void showLocationDetailsDialog(
+            String displayTitle,
+            GeoPoint pos,
+            float speedMs,
+            float headingDeg,
+            double altitude,
+            float accuracyMeters,
+            long lastUpdateMs
+    ) {
+        if (isFinishing() || isDestroyed()) return;
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setBackgroundColor(Color.parseColor("#0F172A"));
+        int paddingPx = (int) (18 * getResources().getDisplayMetrics().density);
+        layout.setPadding(paddingPx, paddingPx, paddingPx, paddingPx);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+        ImageView logoIv = new ImageView(this);
+        int logoSize = (int) (38 * getResources().getDisplayMetrics().density);
+        LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(logoSize, logoSize);
+        logoParams.rightMargin = (int) (12 * getResources().getDisplayMetrics().density);
+        logoIv.setLayoutParams(logoParams);
+        logoIv.setImageResource(R.drawable.viaro);
+
+        TextView titleTv = new TextView(this);
+        titleTv.setText(displayTitle);
+        titleTv.setTextSize(17f);
+        titleTv.setTypeface(null, Typeface.BOLD);
+        titleTv.setTextColor(Color.parseColor("#FFFFFF"));
+
+        header.addView(logoIv);
+        header.addView(titleTv);
+        layout.addView(header);
+
+        TextView detailsTv = new TextView(this);
+        detailsTv.setPadding(0, (int) (12 * getResources().getDisplayMetrics().density), 0, 0);
+        detailsTv.setTextSize(14f);
+        detailsTv.setTextColor(Color.parseColor("#F8FAFC"));
+
+        double lat = pos != null ? pos.getLatitude() : 0.0;
+        double lon = pos != null ? pos.getLongitude() : 0.0;
+        double speedKmh = speedMs * 3.6;
+        long timeAgoSec = lastUpdateMs > 0 ? Math.max(0, (System.currentTimeMillis() - lastUpdateMs) / 1000) : 0;
+        String timeText = lastUpdateMs > 0 ? (timeAgoSec + "s ago") : "Just now";
+
+        String initialText = String.format(
+                Locale.US,
+                "📍 Location Name:\nFetching address...\n\n" +
+                "🌐 Exact Coordinates:\nLat: %.6f\nLon: %.6f\n\n" +
+                "⚡ Speed & Direction:\n%.1f km/h | Bearing: %.0f°\n\n" +
+                "⛰️ Altitude & Accuracy:\nAlt: %.1f m | Acc: ±%.1f m\n\n" +
+                "⏱️ Last Update: %s",
+                lat, lon, speedKmh, headingDeg, altitude, accuracyMeters, timeText
+        );
+        detailsTv.setText(initialText);
+        layout.addView(detailsTv);
+
+        builder.setView(layout);
+        builder.setPositiveButton("Close", (dialog, which) -> dialog.dismiss());
+
+        AlertDialog dialog = builder.create();
+        dialog.show();
+
+        if (dialog.getButton(AlertDialog.BUTTON_POSITIVE) != null) {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.parseColor("#38BDF8"));
+        }
+
+        // Reverse Geocoding in background thread
+        Executors.newSingleThreadExecutor().execute(() -> {
+            String addressName = "Location Address";
+            try {
+                Geocoder geocoder = new Geocoder(this, Locale.getDefault());
+                List<Address> addresses = geocoder.getFromLocation(lat, lon, 1);
+                if (addresses != null && !addresses.isEmpty()) {
+                    Address addr = addresses.get(0);
+                    StringBuilder sb = new StringBuilder();
+                    if (addr.getMaxAddressLineIndex() >= 0) {
+                        sb.append(addr.getAddressLine(0));
+                    } else {
+                        if (addr.getThoroughfare() != null) sb.append(addr.getThoroughfare()).append(", ");
+                        if (addr.getLocality() != null) sb.append(addr.getLocality()).append(", ");
+                        if (addr.getAdminArea() != null) sb.append(addr.getAdminArea());
+                    }
+                    addressName = sb.toString();
+                }
+            } catch (Exception e) {
+                addressName = String.format(Locale.US, "Area near %.4f, %.4f", lat, lon);
+            }
+
+            final String finalAddress = addressName;
+            runOnUiThread(() -> {
+                if (dialog.isShowing()) {
+                    String updatedText = String.format(
+                            Locale.US,
+                            "📍 Location Name:\n%s\n\n" +
+                            "🌐 Exact Coordinates:\nLat: %.6f\nLon: %.6f\n\n" +
+                            "⚡ Speed & Direction:\n%.1f km/h | Bearing: %.0f°\n\n" +
+                            "⛰️ Altitude & Accuracy:\nAlt: %.1f m | Acc: ±%.1f m\n\n" +
+                            "⏱️ Last Update: %s",
+                            finalAddress, lat, lon, speedKmh, headingDeg, altitude, accuracyMeters, timeText
+                    );
+                    detailsTv.setText(updatedText);
+                }
+            });
+        });
     }
 
     @Override
