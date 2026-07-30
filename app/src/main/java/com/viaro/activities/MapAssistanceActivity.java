@@ -109,7 +109,9 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         mMapView = findViewById(R.id.map_assistance_view);
         mMapView.setTileSource(TileSourceFactory.MAPNIK);
         mMapView.setMultiTouchControls(true);
-        mMapView.getZoomController().setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADE);
+        
+        // BUILD ERROR FIX: Changed SHOW_AND_FADE to SHOW_AND_FADEOUT (OSMDroid enum symbol name)
+        mMapView.getZoomController().setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT);
 
         mController = mMapView.getController();
         mController.setZoom(17.0);
