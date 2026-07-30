@@ -21,7 +21,7 @@
       width: 100vw;
       height: 100vh;
       overflow: hidden;
-      pointer-events: none; /* GLITCH 2 FIX: Let map gestures (zoom/pan) pass through */
+      pointer-events: none; /* GLITCH FIX: Let map gestures (zoom/pan) pass through */
     }
 
     /* Floating Top Status Header */
@@ -326,7 +326,7 @@
       background: #0369a1;
     }
 
-    /* GLITCH 1 FIX: Diagnostic Log Terminal Modal */
+    /* Diagnostic Log Terminal Modal */
     .diagnostic-modal {
       position: fixed;
       top: 0;
@@ -494,7 +494,7 @@
     <button class="save-btn" onclick="saveSettingsAndClose()">Save & Apply Configurations</button>
   </div>
 
-  <!-- GLITCH 1 FIX: Diagnostic Terminal Modal -->
+  <!-- Diagnostic Terminal Modal -->
   <div class="diagnostic-modal" id="diagnosticLogModal">
     <div class="diag-header">
       <span>System Terminal Diagnostic Log</span>
@@ -510,7 +510,7 @@
   </div>
 
   <script>
-    // GLITCH 1 FIX: Global Error Interceptor
+    // Global Error Interceptor
     window.onerror = function(msg, url, line, col, error) {
       logDiag(`[ERROR] Exception: ${msg} at line ${line}:${col}`, "error");
       return false;
@@ -537,13 +537,19 @@
       document.getElementById('diagnosticLogModal').style.display = 'none';
     }
 
+    // FIX: Route copy action through Native Android ClipboardManager to eliminate Write Permission Denied error
     function copyDiagnosticLogs() {
       const text = document.getElementById('diagTerminalText').textContent;
       if (window.AndroidInterface && window.AndroidInterface.copyToClipboard) {
         window.AndroidInterface.copyToClipboard(text);
+        logDiag("Copied logs via native Android ClipboardManager.", "info");
       } else {
-        navigator.clipboard.writeText(text);
-        alert("Diagnostic log copied to clipboard.");
+        try {
+          navigator.clipboard.writeText(text);
+          alert("Diagnostic log copied to clipboard.");
+        } catch(e) {
+          logDiag("Clipboard copy failed: " + e.message, "error");
+        }
       }
     }
 
@@ -710,27 +716,41 @@
       liveWs.onopen = () => {
         logDiag("WebSocket onopen fired. Constructing setup payload...", "info");
 
-        // Construct tools array based on settings
+        // FIX: Model Compatibility Guard - Prevent Code 1007 WebSocket rejection on gemini-2.5-flash-native-audio
+        const isMapsSupported = !modelId.includes("2.5-flash-native-audio");
+        
+        // Construct tools array based on settings and model support
         const tools = [];
-        if (enableMaps) tools.push({ google_maps: {} });
-        if (enableSearch) tools.push({ google_search: {} });
+        if (enableMaps && isMapsSupported) {
+          tools.push({ google_maps: {} });
+        } else if (enableMaps && !isMapsSupported) {
+          logDiag("Omitted google_maps tool: Not supported on " + modelId + " to prevent Code 1007 rejection.", "warning");
+        }
+        
+        if (enableSearch) {
+          tools.push({ google_search: {} });
+        }
 
-        // Retrieve current spatial parameters from Java bridge
+        // FIX: DYNAMIC NO-HARDCODING GPS & SPATIAL RULE ENFORCEMENT
         let spatialPrompt = "You are a real-time local Map Assistance Voice AI assistant.\n";
         if (window.AndroidInterface) {
           try {
             const gps = JSON.parse(window.AndroidInterface.getGpsLocation());
             const compass = JSON.parse(window.AndroidInterface.getCompassHeading());
-            spatialPrompt += `CURRENT SPATIAL CONTEXT:\n`;
-            spatialPrompt += `- User GPS Location: Lat ${gps.lat}, Lng ${gps.lng} (Accuracy: ±${gps.accuracy}m)\n`;
-            spatialPrompt += `- User Facing Compass Direction: ${compass.degrees}° (${compass.direction})\n`;
-          } catch(e) {}
+            
+            spatialPrompt += `CRITICAL LIVE LOCATION & COMPASS RULES:\n`;
+            spatialPrompt += `- Your user's current live GPS coordinates are Latitude: ${gps.lat}, Longitude: ${gps.lng} (Accuracy: ±${gps.accuracy.toFixed(1)}m).\n`;
+            spatialPrompt += `- You MUST perform all local searches and place recommendations strictly relative to Latitude ${gps.lat}, Longitude ${gps.lng}.\n`;
+            spatialPrompt += `- Do NOT guess, assume, or hallucinate cities, streets, or landmarks (such as Aluva, Palace Road, etc.) outside of your user's immediate GPS radius.\n`;
+            spatialPrompt += `- User Facing Compass Direction: ${compass.degrees.toFixed(0)}° (${compass.direction}). When asked for places to their West, South, East, or North, filter options relative to their current orientation (${compass.direction}).\n`;
+          } catch(e) {
+            logDiag("Error fetching live GPS/Compass bridge data: " + e.message, "error");
+          }
         }
 
-        spatialPrompt += `\nOPERATIONAL RULES:\n`;
-        spatialPrompt += `1. Always prioritize local knowledge near the user's GPS coordinates first before out-of-premises information.\n`;
-        spatialPrompt += `2. Pay strict attention to user's compass facing direction. If asked for places to their West, South, East, or North, suggest options relative to their current orientation.\n`;
-        spatialPrompt += `3. If the user asks to navigate or find a place, respond clearly in audio and instruct the map to plot route markers.\n`;
+        spatialPrompt += `\nOPERATIONAL NAVIGATION DIRECTIVES:\n`;
+        spatialPrompt += `1. Always prioritize local knowledge near the user's live GPS coordinates first before out-of-premises information.\n`;
+        spatialPrompt += `2. If the user asks to navigate or find a place, respond clearly in audio and instruct the map to plot route markers.\n`;
 
         const setupMessage = {
           setup: {
@@ -753,7 +773,7 @@
         };
 
         liveWs.send(JSON.stringify(setupMessage));
-        logDiag("Setup message frame sent to Gemini.", "info");
+        logDiag("Setup message frame sent to Gemini with dynamic live GPS coordinates.", "info");
       };
 
       liveWs.onmessage = async (event) => {
