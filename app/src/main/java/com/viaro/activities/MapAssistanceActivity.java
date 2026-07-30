@@ -51,6 +51,8 @@ import com.viaro.utils.MapUtils;
 import com.viaro.utils.SpatialContextManager;
 import com.vineyard.viaro.app.R;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.osmdroid.api.IMapController;
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
 import org.osmdroid.util.GeoPoint;
@@ -59,9 +61,16 @@ import org.osmdroid.views.MapView;
 import org.osmdroid.views.overlay.Marker;
 import org.osmdroid.views.overlay.Polyline;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.Executors;
 
 import retrofit2.Call;
@@ -89,6 +98,9 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
     private boolean mIsSimulationRunning = false;
     private final Handler mSimulationHandler = new Handler(Looper.getMainLooper());
     private Runnable mSimulationRunnable;
+
+    // Proximity geofencing & Visited locks for spoken alerts [1]
+    private final Set<String> mTriggeredWaypointIds = new HashSet<>();
 
     // Hardware GPS & Location Services
     private FusedLocationProviderClient mFusedLocationClient;
@@ -123,6 +135,8 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         mMapView = findViewById(R.id.map_assistance_view);
         mMapView.setTileSource(TileSourceFactory.MAPNIK);
         mMapView.setMultiTouchControls(true);
+        
+        // BUILD ERROR FIX: Changed SHOW_AND_FADE to SHOW_AND_FADEOUT (OSMDroid enum symbol name)
         mMapView.getZoomController().setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT);
 
         mController = mMapView.getController();
@@ -530,6 +544,9 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     List<GeoPoint> routePolyline = MapUtils.decodePolyline(geometry);
 
                     drawRoutePolylineAnd10MeterMarkers(routePolyline, destinationName);
+                    
+                    // OSM DUAL-GROUNDING: Scrape all actual registered bus stops & landmarks within 2km of path [1]
+                    fetchLocalTransitAndLandmarks(mCurrentLocation.getLatitude(), mCurrentLocation.getLongitude());
                 } else {
                     Toast.makeText(MapAssistanceActivity.this, "Route not found to destination.", Toast.LENGTH_SHORT).show();
                 }
@@ -607,6 +624,108 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         }
     }
 
+    /* --- OSM OVERPASS API HYBRID TRANSIT & LANDMARK SCRAPER --- */
+
+    /**
+     * OSM HYBRID SCRAPER: Performs asynchronous background HTTP query to OSM Overpass servers [1].
+     * Fetches actual bus stops (highway=bus_stop) and places of worship, schools, banks within 2km [1].
+     */
+    private void fetchLocalTransitAndLandmarks(final double lat, final double lng) {
+        Executors.newSingleThreadExecutor().execute(() -> {
+            try {
+                // Construct tight bounding box around the 2km coordinate threshold [1]
+                double minLat = lat - 0.018;
+                double maxLat = lat + 0.018;
+                double minLng = lng - 0.018;
+                double maxLng = lng + 0.018;
+
+                String overpassQuery = "[out:json][timeout:20];\n" +
+                        "(\n" +
+                        "  node[\"highway\"=\"bus_stop\"](" + minLat + "," + minLng + "," + maxLat + "," + maxLng + ");\n" +
+                        "  node[\"amenity\"~\"place_of_worship|school|bank|hospital\"](" + minLat + "," + minLng + "," + maxLat + "," + maxLng + ");\n" +
+                        ");\n" +
+                        "out body;";
+
+                String urlString = "https://overpass-api.de/api/interpreter?data=" + URLEncoder.encode(overpassQuery, "UTF-8");
+                URL url = new URL(urlString);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(6000);
+                conn.setReadTimeout(6000);
+
+                if (conn.getResponseCode() == 200) {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        response.append(line);
+                    }
+                    reader.close();
+
+                    JSONObject jsonResponse = new JSONObject(response.toString());
+                    JSONArray elements = jsonResponse.optJSONArray("elements");
+
+                    if (elements != null && elements.length() > 0) {
+                        runOnUiThread(() -> plotOSMScrapedWaypointsOnMap(elements));
+                    }
+                }
+                conn.disconnect();
+            } catch (Exception e) {
+                Log.e(TAG, "OSM Overpass API lookup failed: " + e.getMessage());
+            }
+        });
+    }
+
+    private void plotOSMScrapedWaypointsOnMap(JSONArray elements) {
+        if (elements == null || elements.length() == 0) return;
+
+        try {
+            for (int i = 0; i < elements.length(); i++) {
+                JSONObject node = elements.getJSONObject(i);
+                double lat = node.getDouble("lat");
+                double lng = node.getDouble("lon");
+                JSONObject tags = node.optJSONObject("tags");
+
+                String name = "Local Stop";
+                String type = "waypoint";
+
+                if (tags != null) {
+                    name = tags.optString("name", "Local Stop");
+                    if (tags.has("highway") && "bus_stop".equals(tags.getString("highway"))) {
+                        type = "bus_stop";
+                    } else if (tags.has("amenity")) {
+                        type = tags.getString("amenity");
+                    }
+                }
+
+                GeoPoint pt = new GeoPoint(lat, lng);
+                Marker osmMarker = new Marker(mMapView);
+                osmMarker.setPosition(pt);
+                osmMarker.setTitle(name);
+                osmMarker.setInfoWindow(null);
+
+                // Set dedicated visual icon based on dynamic OSM category [1]
+                if ("bus_stop".equals(type)) {
+                    osmMarker.setIcon(getResources().getDrawable(R.drawable.ic_bus, null)); // Circular Bus Stop Icon [1]
+                } else if ("place_of_worship".equals(type)) {
+                    osmMarker.setIcon(getResources().getDrawable(R.drawable.custom_marker, null)); // Place of worship
+                } else if ("school".equals(type) || "college".equals(type)) {
+                    osmMarker.setIcon(getResources().getDrawable(R.drawable.ic_person, null)); // Institutional
+                } else {
+                    osmMarker.setIcon(getResources().getDrawable(R.drawable.ic_location, null)); // Generic
+                }
+
+                // Add to our waypoint list so the simulation geofence engine automatically tracks them [1]
+                mMapView.getOverlays().add(osmMarker);
+                mTenMeterWaypointMarkers.add(osmMarker);
+            }
+            mMapView.invalidate();
+            Log.d(TAG, "Plotted " + elements.length() + " actual transit stops and landmarks from OpenStreetMap database.");
+        } catch (Exception e) {
+            Log.e(TAG, "Error rendering OSM scraped markers: " + e.getMessage());
+        }
+    }
+
     /* --- REAL-TIME TOY CAR DRIVE SIMULATION ENGINE --- */
 
     /**
@@ -625,7 +744,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         if (mCurrentRoutePoints == null || mCurrentRoutePoints.size() < 2) return;
 
         if (mIsSimulationRunning) {
-            // Simply update speed parameter in real-time
+            // Simply update speed parameter in real-time [1]
             return;
         }
 
@@ -697,20 +816,57 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 mSimulatedCarPosition = new GeoPoint(lat, lng);
                 mSimulatedCarMarker.setPosition(mSimulatedCarPosition);
 
-                // Align rotation and rotate the entire OSMDroid map to keep the car driving North
+                // Align rotation and rotate the entire OSMDroid map to keep the car driving North [1]
                 float segmentBearing = MapUtils.calculateBearing(currentPt, nextPt);
                 mSimulatedCarMarker.setRotation(360.0f - segmentBearing);
                 mMapView.setMapOrientation(-segmentBearing);
                 mController.setCenter(mSimulatedCarPosition);
 
-                // Dynamically clear waypoint markers in close proximity of the driving simulation car
-                checkAndFilterWaypointsProximity(mSimulatedCarPosition);
+                // GEOFENCE PROXIMITY spoken alert triggers [1]
+                checkAndTriggerWaypointSpokenAlerts(mSimulatedCarPosition);
+
+                // Calculate remaining OSRM route distance [1]
+                double remainingDistance = calculateRemainingRouteDistance();
+                runOnUiThread(() -> mWebView.evaluateJavascript("if(window.updateSimulationProgress){ window.updateSimulationProgress(" + remainingDistance + "); }", null));
 
                 mMapView.invalidate();
                 mSimulationHandler.postDelayed(this, 50); // Tick every 50ms (20 FPS)
             }
         };
         mSimulationHandler.postDelayed(mSimulationRunnable, 50);
+    }
+
+    /**
+     * Calculates the exact remaining path distance in meters from the simulated car to destination.
+     */
+    private double calculateRemainingRouteDistance() {
+        double dist = 0.0;
+        if (mCurrentRoutePoints != null && mCurrentRouteIndex < mCurrentRoutePoints.size() - 1) {
+            dist += mSimulatedCarPosition.distanceToAsDouble(mCurrentRoutePoints.get(mCurrentRouteIndex + 1));
+            for (int i = mCurrentRouteIndex + 1; i < mCurrentRoutePoints.size() - 1; i++) {
+                dist += mCurrentRoutePoints.get(i).distanceToAsDouble(mCurrentRoutePoints.get(i + 1));
+            }
+        }
+        return dist;
+    }
+
+    /**
+     * Proximity Geofencing Alerts: Checks if the car has entered a 15-meter radius of any stop [1].
+     */
+    private void checkAndTriggerWaypointSpokenAlerts(GeoPoint carPos) {
+        for (Marker marker : mTenMeterWaypointMarkers) {
+            String stopName = marker.getTitle();
+            if (stopName != null && !stopName.equals("Your Location") && !stopName.equals("Target Attraction") && !mTriggeredWaypointIds.contains(stopName)) {
+                double distMeters = carPos.distanceToAsDouble(marker.getPosition());
+                if (distMeters < 15.0) { // 15m proximity boundary [1]
+                    mTriggeredWaypointIds.add(stopName);
+                    
+                    // Dispatch spoken event to Gemini Live WebSocket turns [1]
+                    runOnUiThread(() -> mWebView.evaluateJavascript("if(window.onReachedWaypoint){ window.onReachedWaypoint('" + stopName.replace("'", "\\'") + "'); }", null));
+                    Log.d(TAG, "GEOFENCE TRIGGERED: Reached milestone: " + stopName + " | Spoken turn injected.");
+                }
+            }
+        }
     }
 
     /**
@@ -736,6 +892,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
      */
     public void clearRouteOverlay() {
         stopDriveSimulation();
+        mTriggeredWaypointIds.clear(); // Reset geofencing spoken locks [1]
         
         if (mActiveRoutePolyline != null) {
             mMapView.getOverlays().remove(mActiveRoutePolyline);
