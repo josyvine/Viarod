@@ -12,7 +12,7 @@ plugins {
 android {
   // Your updated namespace
   namespace = "com.vineyard.viaro.app"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 36
 
   defaultConfig {
     // Your updated Package Name for Firebase
@@ -117,6 +117,9 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.play.services.location)
   implementation(libs.retrofit)
+
+  // AndroidX WebKit for Secure Origin AssetLoader (map_assistance.html)
+  implementation("androidx.webkit:webkit:1.11.0")
 
   // Viaro OSM/Firebase Dependencies
   implementation(libs.osmdroid)
