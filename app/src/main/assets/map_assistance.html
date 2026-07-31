@@ -756,18 +756,17 @@
         const setupMessage = {
           setup: {
             model: "models/" + modelId,
-            generationConfig: {
-              responseModalalities: ["AUDIO"],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: voiceName }
-                }
+            generationConfig: {},
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voiceName }
               }
             },
             systemInstruction: {
               parts: [{ text: spatialPrompt }]
             },
-            tools: customTools, // Registered function calling tool
+            tools: customTools,
             inputAudioTranscription: {},
             outputAudioTranscription: {}
           }
@@ -1019,7 +1018,7 @@
           logDiag("Failed to extract coordinates from either structured metadata, Nominatim, or text fallback.", "error");
         }
 
-        // Return resolved location payload back to Gemini Live Websocket session
+        // Return resolved location payload back to Gemini Live WebSocket session
         if (liveWs && liveWs.readyState === WebSocket.OPEN) {
           const responseMessage = {
             toolResponse: {
