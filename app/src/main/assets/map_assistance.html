@@ -459,7 +459,8 @@
     <div class="form-group">
       <label for="geminiModelSelect">Live Model Selection</label>
       <select id="geminiModelSelect">
-        <option value="gemini-3.1-flash-live-preview" selected>Gemini 3.1 Flash Live Preview</option>
+        <option value="gemini-3.5-flash-lite" selected>Gemini 3.5 Flash Lite</option>
+        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
         <option value="gemini-2.5-flash-native-audio-preview-12-2025">Gemini 2.5 Flash Native Audio</option>
         <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp (Live)</option>
       </select>
@@ -482,7 +483,7 @@
       <label>Grounding Tools</label>
       <label class="checkbox-group">
         <input type="checkbox" id="geminiMapsGroundingToggle" checked />
-        <span>Google Maps Grounding (google_maps)</span>
+        <span>Google Maps Grounding (googleMaps)</span>
       </label>
     </div>
 
@@ -571,7 +572,7 @@
       if (window.AndroidInterface) {
         try {
           document.getElementById('geminiApiKeyInput').value = window.AndroidInterface.getGeminiApiKey() || '';
-          document.getElementById('geminiModelSelect').value = window.AndroidInterface.getGeminiModel() || 'gemini-3.1-flash-live-preview';
+          document.getElementById('geminiModelSelect').value = window.AndroidInterface.getGeminiModel() || 'gemini-3.5-flash-lite';
           document.getElementById('geminiVoiceSelect').value = window.AndroidInterface.getGeminiVoice() || 'Puck';
           document.getElementById('geminiMapsGroundingToggle').checked = window.AndroidInterface.getMapGroundingEnabled();
           logDiag("Settings loaded from native AndroidInterface.", "info");
@@ -850,7 +851,7 @@
 
     /**
      * DUAL-MODEL RELAY EXECUTOR:
-     * Calls standard gemini-3.1-flash-lite with native google_maps grounding in the background.
+     * Calls standard gemini-3.5-flash-lite with native googleMaps grounding in the background.
      * Obtains coordinates via a structured-metadata first approach, falling back to a prompt-controlled text parser.
      */
     async function executeBackgroundMapsQuery(query, callId) {
@@ -866,15 +867,17 @@
         } catch(e) {}
       }
 
-      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
+      const modelId = document.getElementById('geminiModelSelect').value;
+      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
 
       // OPTION B: Refined system prompt ensuring strict coordination obedience
       const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
-                         `Use the verified coordinates and place details returned by the google_maps tool. ` +
+                         `Use the verified coordinates and place details returned by the googleMaps tool. ` +
                          `Provide the exact name, rating, address, and coordinates. ` +
                          `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. ` +
                          `Do not guess, generalize, or hallucinate these coordinates under any circumstances.`;
 
+      // CONFIG SYNC: Use the official googleMaps tool with latLng retrieval context
       const requestPayload = {
         contents: [
           {
@@ -884,8 +887,16 @@
           }
         ],
         tools: [
-          { google_maps: {} } // Pure Google Maps Search Grounding
-        ]
+          { googleMaps: {} } // Correct native camelCase tool name
+        ],
+        toolConfig: {
+          retrievalConfig: {
+            latLng: {
+              latitude: gps.lat,
+              longitude: gps.lng
+            }
+          }
+        }
       };
 
       logDiag(`Dispatching background Maps Grounding request for query: "${query}" near ${gps.placeName}...`, "info");
@@ -914,26 +925,29 @@
         const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
         if (groundingMetadata && groundingMetadata.groundingChunks) {
           for (const chunk of groundingMetadata.groundingChunks) {
-            const url = chunk.web?.uri;
-            if (url && (url.includes("google.com/maps") || url.includes("maps.google"))) {
-              // Extract coordinates directly from the Google Maps URL parameters
-              // Format 1: @lat,lng
-              let match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-              if (match) {
-                lat = parseFloat(match[1]);
-                lng = parseFloat(match[2]);
-              } else {
-                // Format 2: q=lat,lng or ll=lat,lng
-                match = url.match(/[?&](q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+            // Target the official native "maps" chunk structure
+            if (chunk.maps) {
+              destName = chunk.maps.title || query;
+              
+              const url = chunk.maps.uri;
+              if (url) {
+                // Extract coordinates directly from the URL parameters if present
+                let match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
                 if (match) {
-                  lat = parseFloat(match[2]);
-                  lng = parseFloat(match[3]);
+                  lat = parseFloat(match[1]);
+                  lng = parseFloat(match[2]);
+                  extractionMethod = "native maps chunk URL parameters";
+                } else {
+                  match = url.match(/[?&](q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                  if (match) {
+                    lat = parseFloat(match[2]);
+                    lng = parseFloat(match[3]);
+                    extractionMethod = "native maps chunk URL query parameters";
+                  }
                 }
               }
               
               if (lat !== null && lng !== null) {
-                destName = chunk.web.title || query;
-                extractionMethod = "structured groundingMetadata";
                 break;
               }
             }
@@ -951,6 +965,31 @@
           }
         }
 
+        // OPTION C: Nominatim Geocoding Verification (OpenStreetMap Ground Truth)
+        if (destName) {
+          try {
+            // Append region to focus search close to the user's location
+            const searchQuery = destName.toLowerCase().includes("kerala") ? destName : `${destName}, Kerala`;
+            logDiag(`Performing Nominatim geocoding check for: "${searchQuery}"...`, "info");
+            
+            const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1`, {
+              headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
+            });
+            
+            if (geoResponse.ok) {
+              const geoData = await geoResponse.json();
+              if (geoData && geoData.length > 0) {
+                lat = parseFloat(geoData[0].lat);
+                lng = parseFloat(geoData[0].lon);
+                extractionMethod = "Nominatim geocoding database";
+                logDiag(`Nominatim successfully verified location at (${lat}, ${lng})`, "info");
+              }
+            }
+          } catch(geoError) {
+            logDiag("Nominatim geocoding check failed: " + geoError.message, "warning");
+          }
+        }
+
         let routeMsg = "No exact coordinates could be parsed.";
 
         if (lat !== null && lng !== null && window.AndroidInterface) {
@@ -958,7 +997,7 @@
           routeMsg = `The route to ${destName} (${lat}, ${lng}) has been plotted with 10-meter markers on the OSMDroid map.`;
           logDiag(`Parsed coordinates via ${extractionMethod}: ${destName} at (${lat}, ${lng}). Drawing OSMDroid route...`, "info");
         } else {
-          logDiag("Failed to extract coordinates from either structured metadata or text fallback.", "error");
+          logDiag("Failed to extract coordinates from either structured metadata, Nominatim, or text fallback.", "error");
         }
 
         // Return resolved location payload back to Gemini Live Websocket session
