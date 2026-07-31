@@ -6,6 +6,13 @@
   <title>Map Assistance - Gemini Live Engine</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <style>
+    :root {
+      --car-color-primary: #e62222;
+      --car-color-dark: #8b0000;
+      --car-color-highlight: #ff6b6b;
+      --speed-mult: 0;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -394,6 +401,171 @@
       color: #00ff00;
       border: 1px solid #00ff00;
     }
+
+    /* --- TOY CAR 3D PERSPECTIVE AVATAR & DASHBOARD STYLES --- */
+    .car-map-avatar {
+      position: fixed;
+      bottom: 250px;
+      left: 50%;
+      transform: translateX(-50%) rotateX(46deg) scale(0.85);
+      width: 130px;
+      height: 190px;
+      z-index: 50;
+      pointer-events: none;
+      display: none; /* Shown dynamically when route is active */
+    }
+
+    .car-wrapper {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      animation: suspensionBounce 0.2s ease-in-out infinite alternate;
+    }
+
+    .car-shadow {
+      position: absolute;
+      bottom: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 110px;
+      height: 170px;
+      background: rgba(0, 0, 0, 0.65);
+      border-radius: 36px;
+      filter: blur(8px);
+    }
+
+    .toy-car-svg {
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0px 8px 10px rgba(0, 0, 0, 0.45));
+    }
+
+    .headlight-beam {
+      position: absolute;
+      top: -140px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 160px;
+      height: 160px;
+      background: linear-gradient(to top, rgba(255, 255, 200, 0.8), rgba(255, 255, 180, 0));
+      clip-path: polygon(25% 100%, 75% 100%, 100% 0, 0 0);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+
+    .night-active .headlight-beam {
+      opacity: 0.85;
+      filter: drop-shadow(0 0 12px rgba(255,255,200,0.6));
+    }
+
+    .exhaust-pipe {
+      position: absolute;
+      bottom: 5px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .smoke-particle {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: rgba(200, 200, 200, 0.4);
+      border-radius: 50%;
+      animation: smokeDrift 0.8s ease-out forwards;
+    }
+
+    @keyframes suspensionBounce {
+      0% { transform: translateY(0px); }
+      100% { transform: translateY(-2px); }
+    }
+
+    @keyframes smokeDrift {
+      0% { opacity: 0.6; transform: translate(-50%, 0) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, 40px) scale(3.0); }
+    }
+
+    /* Simulation Control Dashboard Overlay Panel */
+    .simulation-dashboard {
+      position: fixed;
+      bottom: 90px;
+      left: 15px;
+      right: 15px;
+      background: rgba(15, 23, 42, 0.85); /* Translucent background */
+      backdrop-filter: blur(12px); /* Glass blur behind card */
+      border: 1px solid rgba(56, 189, 248, 0.25); /* Cyan borders */
+      border-radius: 20px;
+      padding: 16px 20px; /* Large readable padding */
+      display: none; /* Shown dynamically when route is active */
+      flex-direction: column;
+      gap: 12px;
+      pointer-events: auto;
+      z-index: 100;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+      color: #fff;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .sim-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      gap: 12px;
+    }
+
+    .sim-speed-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: bold;
+    }
+
+    .sim-speed-box select {
+      padding: 6px 10px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #fff;
+      outline: none;
+    }
+
+    .color-dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+
+    /* COMPASS ADJACENT MINIMIZATION BUTTON STYLING */
+    .sim-minimized-card {
+      position: fixed;
+      top: 140px; /* Vertically positioned right beside the native compass */
+      right: 76px; /* Safe offset left of the vertical compass cluster */
+      width: 44px;
+      height: 44px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 50%;
+      display: none; /* Shown programmatically */
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 100;
+      pointer-events: auto;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      color: #38bdf8;
+      transition: all 0.2s ease-in-out;
+    }
+
+    .sim-minimized-card:active {
+      transform: scale(0.9);
+      background: rgba(15, 23, 42, 0.95);
+    }
   </style>
 </head>
 <body>
@@ -416,6 +588,61 @@
   <div class="transcript-overlay" id="transcriptOverlay">
     <div class="transcript-speaker" id="transcriptSpeaker">Gemini Live</div>
     <div id="transcriptBody">Connecting to Gemini Live...</div>
+  </div>
+
+  <!-- Real-Time Simulated Drive Dashboard Card (ENHANCED TRANS-GLASSMORPHIC HUD) -->
+  <div class="simulation-dashboard" id="simDashboard">
+    <div class="sim-row">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="material-symbols-outlined" style="color:#38bdf8; font-size: 22px;">directions_car</span>
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span style="font-size:14px; font-weight:bold;" id="simStatusLabel">Toy Car Simulation Idle</span>
+          <span style="font-size:11px; color:#94a3b8;" id="simDistanceTimeLabel">ETA: -- min | -- km remaining</span>
+        </div>
+      </div>
+      
+      <div style="display:flex; align-items:center; gap:8px;">
+        <!-- Minimize icon collapsing the board into a bubble beside compass -->
+        <span class="material-symbols-outlined" style="cursor:pointer; font-size:22px; color:#94a3b8; padding:4px;" onclick="minimizeSimulationDashboard()" title="Minimize Panel">minimize</span>
+        <button class="save-btn" id="btnSimPlayPause" onclick="toggleSimPlayPause()" style="margin:0; padding:8px 16px; font-size:12px;">▶ Start Drive</button>
+      </div>
+    </div>
+
+    <div class="sim-row" style="border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">
+      <!-- Speed selector strictly between 5 km/h to 80 km/h -->
+      <div class="sim-speed-box">
+        <label for="simSpeedSelect">Sim Speed:</label>
+        <select id="simSpeedSelect" onchange="onSimSpeedChanged(this.value)">
+          <option value="5">5 km/h</option>
+          <option value="10">10 km/h</option>
+          <option value="15">15 km/h</option>
+          <option value="20" selected>20 km/h</option>
+          <option value="30">30 km/h</option>
+          <option value="40">40 km/h</option>
+          <option value="50">50 km/h</option>
+          <option value="60">60 km/h</option>
+          <option value="70">70 km/h</option>
+          <option value="80">80 km/h</option>
+        </select>
+      </div>
+
+      <!-- Synthesizer Audio Engine Toggle Button -->
+      <button class="header-btn" id="btnSimSound" onclick="toggleEngineSound()" style="border-radius:18px; width:auto; padding:0 12px; height:34px; font-size:11px; font-weight:bold;" title="Synthesizer Sound">
+        🔇 Sound: OFF
+      </button>
+
+      <!-- Dynamic Paint Picker -->
+      <div style="display:flex; gap:8px;">
+        <div class="color-dot" style="background:#e62222;" onclick="setCarColor('#e62222', '#8b0000', '#ff6b6b')"></div>
+        <div class="color-dot" style="background:#2563eb;" onclick="setCarColor('#2563eb', '#1e3a8a', '#60a5fa')"></div>
+        <div class="color-dot" style="background:#10b981;" onclick="setCarColor('#10b981', '#064e3b', '#34d399')"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COMPASS ADJACENT MINIMIZED BUBBLE CARD -->
+  <div class="sim-minimized-card" id="simMinimizedCard" onclick="restoreSimulationDashboard()" title="Expand Simulation Panel">
+    <span class="material-symbols-outlined" style="font-size: 22px;">directions_car</span>
   </div>
 
   <!-- Bottom Floating Control Bar -->
@@ -456,7 +683,6 @@
       <input type="password" id="geminiApiKeyInput" placeholder="Paste AIzaSy... API key" />
     </div>
 
-    <!-- Live model dropdown remains dedicated strictly to Live WebSocket models -->
     <div class="form-group">
       <label for="geminiModelSelect">Live Model Selection</label>
       <select id="geminiModelSelect">
@@ -503,6 +729,89 @@
     <div class="diag-actions">
       <button class="diag-btn diag-btn-copy" onclick="copyDiagnosticLogs()">Copy Logs</button>
       <button class="diag-btn diag-btn-close" onclick="closeDiagnosticModal()">Close</button>
+    </div>
+  </div>
+
+  <!-- 3D PERSPECTIVE TOY CAR AVATAR -->
+  <div class="car-map-avatar" id="carMapAvatar">
+    <div class="car-shadow"></div>
+    <div class="car-wrapper">
+      <div class="headlight-beam"></div>
+      <div class="exhaust-pipe" id="carExhaust"></div>
+
+      <svg class="toy-car-svg" viewBox="0 0 160 220" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="carBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="var(--car-color-highlight)" />
+            <stop offset="50%" stop-color="var(--car-color-primary)" />
+            <stop offset="100%" stop-color="var(--car-color-dark)" />
+          </linearGradient>
+
+          <linearGradient id="roofShine" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="rgba(255,255,255,0.6)" />
+            <stop offset="60%" stop-color="rgba(255,255,255,0.1)" />
+            <stop offset="100%" stop-color="rgba(0,0,0,0.3)" />
+          </linearGradient>
+
+          <linearGradient id="glassGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#3b82f6" />
+            <stop offset="40%" stop-color="#1e293b" />
+            <stop offset="100%" stop-color="#0f172a" />
+          </linearGradient>
+
+          <linearGradient id="chromeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#cbd5e1" />
+            <stop offset="50%" stop-color="#ffffff" />
+            <stop offset="100%" stop-color="#64748b" />
+          </linearGradient>
+        </defs>
+
+        <!-- Tires -->
+        <rect x="8" y="32" width="16" height="38" rx="6" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+        <rect x="136" y="32" width="16" height="38" rx="6" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+        <rect x="6" y="148" width="18" height="42" rx="6" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+        <rect x="136" y="148" width="18" height="42" rx="6" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+
+        <!-- Main Car Body Shell -->
+        <path d="M 42,20 C 58,12 102,12 118,20 C 136,32 144,58 144,110 C 144,165 138,194 120,206 C 104,214 56,214 40,206 C 22,194 16,165 16,110 C 16,58 24,32 42,20 Z" fill="url(#carBodyGrad)" stroke="rgba(0,0,0,0.4)" stroke-width="2"/>
+
+        <!-- Hood Contour Lines -->
+        <path d="M 45,26 C 60,32 100,32 115,26" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.5"/>
+        <path d="M 52,22 L 56,60 M 108,22 L 104,60" fill="none" stroke="rgba(0,0,0,0.15)" stroke-width="1.5"/>
+
+        <!-- Front Windshield -->
+        <path d="M 36,74 C 45,56 115,56 124,74 C 118,84 42,84 36,74 Z" fill="url(#glassGrad)" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+
+        <!-- Roof & Window Cab -->
+        <rect x="34" y="88" width="92" height="66" rx="14" fill="url(#carBodyGrad)" stroke="rgba(0,0,0,0.2)" stroke-width="1.5"/>
+        <rect x="36" y="90" width="88" height="62" rx="12" fill="url(#roofShine)" />
+
+        <!-- Side Windows -->
+        <path d="M 30,86 L 34,88 L 34,148 L 30,150 Z" fill="url(#glassGrad)" opacity="0.9"/>
+        <path d="M 130,86 L 126,88 L 126,148 L 130,150 Z" fill="url(#glassGrad)" opacity="0.9"/>
+
+        <!-- Rear Windshield -->
+        <path d="M 38,156 C 48,148 112,148 122,156 C 116,170 44,170 38,156 Z" fill="url(#glassGrad)" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+
+        <!-- Side Mirrors -->
+        <path d="M 16,66 L 5,60 C 3,68 10,74 16,72 Z" fill="url(#carBodyGrad)" stroke="rgba(0,0,0,0.3)"/>
+        <path d="M 144,66 L 155,60 C 157,68 150,74 144,72 Z" fill="url(#carBodyGrad)" stroke="rgba(0,0,0,0.3)"/>
+
+        <!-- Front Headlights (Facing UP) -->
+        <ellipse cx="34" cy="22" rx="9" ry="5" fill="#ffffff" opacity="0.95"/>
+        <ellipse cx="34" cy="22" rx="9" ry="5" fill="#fef08a" opacity="0.8"/>
+        <ellipse cx="126" cy="22" rx="9" ry="5" fill="#ffffff" opacity="0.95"/>
+        <ellipse cx="126" cy="22" rx="9" ry="5" fill="#fef08a" opacity="0.8"/>
+
+        <!-- Rear Taillights -->
+        <rect x="24" y="200" width="22" height="7" rx="3" fill="#ef4444"/>
+        <rect x="26" y="201" width="18" height="3" rx="1.5" fill="#fca5a5" opacity="0.8"/>
+        <rect x="114" y="200" width="22" height="7" rx="3" fill="#ef4444"/>
+        <rect x="116" y="201" width="18" height="3" rx="1.5" fill="#fca5a5" opacity="0.8"/>
+
+        <!-- Rear Bumper & Chrome Trim -->
+        <rect x="58" y="207" width="44" height="5" rx="2" fill="url(#chromeGrad)"/>
+      </svg>
     </div>
   </div>
 
@@ -560,12 +869,23 @@
     let activeSources = [];
     let isLiveSessionConnected = false;
 
+    // Simulation State
+    let isSimulatingDrive = false;
+    let simulationSpeedKmh = 20;
+
+    // WebAudio Synthesizer variables
+    let audioCtx = null;
+    let engineOsc1 = null, engineOsc2 = null;
+    let engineFilter = null, engineGain = null;
+    let soundEnabled = false;
+
     // Load Settings on Start
     window.addEventListener('DOMContentLoaded', () => {
       logDiag("Map Assistance HTML Engine initialized.", "info");
       loadSettingsFromNative();
       updateHeaderSpatialText();
       setInterval(updateHeaderSpatialText, 1000);
+      setCarColor('#e62222', '#8b0000', '#ff6b6b'); // Default paint color
     });
 
     function loadSettingsFromNative() {
@@ -1016,6 +1336,9 @@
           window.AndroidInterface.plotRouteToDestination(destName, lat, lng);
           routeMsg = `The route to ${destName} (${lat}, ${lng}) has been plotted with 10-meter markers on the OSMDroid map.`;
           logDiag(`Parsed coordinates via ${extractionMethod}: ${destName} at (${lat}, ${lng}). Drawing OSMDroid route...`, "info");
+
+          // Automatically reveal simulation dashboard card and center-dock toy car avatar
+          showSimulationControls();
         } else {
           logDiag("Failed to extract coordinates from either structured metadata, Nominatim, or text fallback.", "error");
         }
@@ -1203,6 +1526,7 @@
       return bytes.buffer;
     }
 
+    // exhaust tailpipe smoke generation
     function arrayBufferToBase64(buffer) {
       let binary = '';
       const bytes = new Uint8Array(buffer);
@@ -1211,6 +1535,272 @@
       }
       return window.btoa(binary);
     }
+
+    /* --- TOY CAR SIMULATION GRAPHICS & SOUND SYNTH LOGIC --- */
+
+    function showSimulationControls() {
+      document.getElementById('simDashboard').style.display = 'flex';
+      document.getElementById('carMapAvatar').style.display = 'block';
+      logDiag("Revealed Toy Car and Simulation control dashboard.", "info");
+    }
+
+    function hideSimulationControls() {
+      document.getElementById('simDashboard').style.display = 'none';
+      document.getElementById('carMapAvatar').style.display = 'none';
+      logDiag("Hidden Toy Car and Simulation controls.", "info");
+
+      // Stop sound if active
+      if (soundEnabled) {
+        toggleEngineSound();
+      }
+    }
+
+    // Dynamic car color modification
+    function setCarColor(primary, dark, highlight) {
+      document.documentElement.style.setProperty('--car-color-primary', primary);
+      document.documentElement.style.setProperty('--car-color-dark', dark);
+      document.documentElement.style.setProperty('--car-color-highlight', highlight);
+    }
+
+    // Exhaust tailpipe smoke generation
+    function createExhaustSmoke() {
+      if (isSimulatingDrive) {
+        const exhaust = document.getElementById('carExhaust');
+        if (exhaust) {
+          const p = document.createElement('div');
+          p.className = 'smoke-particle';
+          exhaust.appendChild(p);
+          setTimeout(() => { p.remove(); }, 800);
+        }
+      }
+    }
+    setInterval(createExhaustSmoke, 120);
+
+    // Audio Engine Synthesizer for engine hum
+    function initAudio() {
+      if (audioCtx) return;
+
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContext();
+
+      engineOsc1 = audioCtx.createOscillator();
+      engineOsc1.type = 'sawtooth';
+      engineOsc1.frequency.setValueAtTime(45, audioCtx.currentTime);
+
+      engineOsc2 = audioCtx.createOscillator();
+      engineOsc2.type = 'triangle';
+      engineOsc2.frequency.setValueAtTime(22.5, audioCtx.currentTime);
+
+      const bufferSize = audioCtx.sampleRate * 2;
+      const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        output[i] = Math.random() * 2 - 1;
+      }
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = noiseBuffer;
+      noise.loop = true;
+
+      const noiseFilter = audioCtx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(250, audioCtx.currentTime);
+
+      const noiseGain = audioCtx.createGain();
+      noiseGain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+
+      engineFilter = audioCtx.createBiquadFilter();
+      engineFilter.type = 'lowpass';
+      engineFilter.frequency.setValueAtTime(200, audioCtx.currentTime);
+      engineFilter.Q.setValueAtTime(2.5, audioCtx.currentTime);
+
+      engineGain = audioCtx.createGain();
+      engineGain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+
+      engineOsc1.connect(engineFilter);
+      engineOsc2.connect(engineFilter);
+      noiseGain.connect(engineFilter);
+      engineFilter.connect(engineGain);
+      engineGain.connect(audioCtx.destination);
+
+      engineOsc1.start();
+      engineOsc2.start();
+      noise.start();
+
+      updateEngineSound(simulationSpeedKmh);
+    }
+
+    function toggleEngineSound() {
+      const btn = document.getElementById('btnSimSound');
+      if (!soundEnabled) {
+        initAudio();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        engineGain.gain.setTargetAtTime(0.25, audioCtx.currentTime, 0.05);
+        soundEnabled = true;
+        btn.innerText = "🔊 Sound: ON";
+        btn.style.background = "#10b981";
+      } else {
+        if (engineGain) engineGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+        soundEnabled = false;
+        btn.innerText = "🔇 Sound: OFF";
+        btn.style.background = "rgba(255, 255, 255, 0.1)";
+      }
+    }
+
+    // Dynamic scale ratios updated smoothly to map maximum 80 km/h
+    function updateEngineSound(speedKmh) {
+      if (!soundEnabled || !audioCtx) return;
+
+      const now = audioCtx.currentTime;
+      // Map 5km/h to 80km/h linearly to audio synthesizer values
+      const ratio = (speedKmh - 5.0) / 75.0; // 0.0 to 1.0 range
+
+      const pitch = 45 + (ratio * 55);
+      const cutoff = 180 + (ratio * 320);
+      const volume = 0.22 + (ratio * 0.06);
+
+      engineOsc1.frequency.setTargetAtTime(pitch, now, 0.12);
+      engineOsc2.frequency.setTargetAtTime(pitch * 0.5, now, 0.12);
+      engineFilter.frequency.setTargetAtTime(cutoff, now, 0.15);
+      engineGain.gain.setTargetAtTime(volume, now, 0.1);
+    }
+
+    // Toggle simulation drive state
+    function toggleSimPlayPause() {
+      const btn = document.getElementById('btnSimPlayPause');
+      const label = document.getElementById('simStatusLabel');
+
+      isSimulatingDrive = !isSimulatingDrive;
+
+      if (isSimulatingDrive) {
+        btn.innerText = "⏸ Pause Drive";
+        btn.style.background = "#ef4444";
+        label.innerText = `Simulation Active: Driving at ${simulationSpeedKmh} km/h`;
+        logDiag(`Starting real-time map drive simulation at ${simulationSpeedKmh} km/h...`, "info");
+
+        if (window.AndroidInterface && window.AndroidInterface.startDriveSimulation) {
+          window.AndroidInterface.startDriveSimulation(simulationSpeedKmh);
+        }
+      } else {
+        btn.innerText = "▶ Start Drive";
+        btn.style.background = "#0284c7";
+        label.innerText = "Simulation Paused";
+        logDiag("Paused real-time map drive simulation.", "info");
+
+        if (window.AndroidInterface && window.AndroidInterface.stopDriveSimulation) {
+          window.AndroidInterface.stopDriveSimulation();
+        }
+      }
+    }
+
+    function onSimSpeedChanged(val) {
+      simulationSpeedKmh = parseFloat(val);
+      updateEngineSound(simulationSpeedKmh);
+
+      if (isSimulatingDrive) {
+        document.getElementById('simStatusLabel').innerText = `Simulation Active: Driving at ${simulationSpeedKmh} km/h`;
+        logDiag(`Updating live driving simulation speed to ${simulationSpeedKmh} km/h.`, "info");
+
+        if (window.AndroidInterface && window.AndroidInterface.startDriveSimulation) {
+          window.AndroidInterface.startDriveSimulation(simulationSpeedKmh);
+        }
+      }
+    }
+
+    // Dynamic push update handler triggered on every 50ms tick from native MapAssistanceActivity
+    window.updateSimulationProgress = function(remainingDistanceMeters, nextWaypointName, nextWaypointDistanceMeters) {
+      const labelEl = document.getElementById('simDistanceTimeLabel');
+      if (labelEl) {
+        // Calculate dynamic ETA based on current target speed in meters/second
+        const speedMs = (simulationSpeedKmh * 1000.0) / 3600.0;
+        const etaSeconds = speedMs > 0 ? (remainingDistanceMeters / speedMs) : 0;
+        const etaMinutes = Math.floor(etaSeconds / 60);
+        const etaRemainingSeconds = Math.round(etaSeconds % 60);
+
+        const distanceKm = (remainingDistanceMeters / 1000.0).toFixed(2);
+        
+        let labelText = `ETA: ${etaMinutes}m ${etaRemainingSeconds}s | ${distanceKm} km remaining`;
+        
+        // Append nearest upcoming stop details dynamically to the dashboard sub-label
+        if (nextWaypointName && nextWaypointName !== "None") {
+            const nextStopDistanceKm = (nextWaypointDistanceMeters / 1000.0).toFixed(2);
+            labelText += ` | Next: ${nextWaypointName} (${nextStopDistanceKm} km)`;
+        }
+        
+        labelEl.innerText = labelText;
+      }
+    };
+
+    // Minimization Handler: Collapses panel into a small bubble placed beside compass
+    function minimizeSimulationDashboard() {
+      document.getElementById('simDashboard').style.display = 'none';
+      document.getElementById('simMinimizedCard').style.display = 'flex';
+      logDiag("Minimized simulation control dashboard.", "info");
+    }
+
+    // Restoration Handler: Restores the enlarged translucent panel
+    function restoreSimulationDashboard() {
+      document.getElementById('simMinimizedCard').style.display = 'none';
+      document.getElementById('simDashboard').style.display = 'flex';
+      logDiag("Restored simulation control dashboard.", "info");
+    }
+
+    // Geofencing Spoken Alert Callback called natively by Java when entering 15m radius of a milestone
+    window.onReachedWaypoint = function(waypointName) {
+      logDiag(`GEOFENCE ALERT: Car reached milestone: "${waypointName}"!`, "system");
+      
+      // Update status label momentarily
+      const label = document.getElementById('simStatusLabel');
+      if (label) {
+        label.innerText = `Reached: ${waypointName}`;
+        setTimeout(() => {
+          if (isSimulatingDrive) {
+            label.innerText = `Simulation Active: Driving at ${simulationSpeedKmh} km/h`;
+          } else {
+            label.innerText = "Simulation Paused";
+          }
+        }, 3500);
+      }
+
+      // If active Gemini Live WebSocket connection is open, inject a silent, high-priority spoken alert turn
+      if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+        const spokenAlertMessage = {
+          clientContent: {
+            turns: [
+              {
+                role: "user",
+                parts: [
+                  { text: `[SYSTEM_ALERT_PROXIMITY_NOTIFICATION] The user has just reached this physical waypoint milestone along the road: "${waypointName}". Instantly announce this exact milestone in Malayalam to the user in a very brief, friendly, 1-sentence vocal alert. Do not include any long chatty introduction or prefaces.` }
+                ]
+              }
+            ],
+            turnComplete: true
+          }
+        };
+        liveWs.send(JSON.stringify(spokenAlertMessage));
+        logDiag(`Injected spoken proximity system alert for "${waypointName}" to Gemini Live session.`, "info");
+      }
+    };
+
+    // Triggered externally by Android native GestureDetector upon double-tap to reset/clear overlays
+    window.onDisplayDoubleTapped = function() {
+      logDiag("Android GestureDetector: Double-tap registered. Clearing all map routes and ending active simulation...", "system");
+
+      // Reset local simulation states
+      if (isSimulatingDrive) {
+        toggleSimPlayPause(); // Toggle back to idle
+      }
+
+      // Hide dashboards
+      hideSimulationControls();
+      document.getElementById('simMinimizedCard').style.display = 'none'; // Ensure minimized card is also hidden
+
+      // Clear OSRM route in native code
+      if (window.AndroidInterface && window.AndroidInterface.clearRouteOverlay) {
+        window.AndroidInterface.clearRouteOverlay();
+      }
+    };
   </script>
 </body>
 </html>
