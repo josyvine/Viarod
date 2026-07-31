@@ -692,6 +692,20 @@
       </select>
     </div>
 
+    <!-- ADDED: Dedicated Background Search Model Selection -->
+    <div class="form-group">
+      <label for="geminiSearchModelSelect">Background Search Model</label>
+      <select id="geminiSearchModelSelect">
+        <option value="gemini-3.5-flash-lite" selected>Gemini 3.5 Flash Lite</option>
+        <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+        <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+      </select>
+    </div>
+
     <div class="form-group">
       <label for="geminiVoiceSelect">TTS Voice Character</label>
       <select id="geminiVoiceSelect">
@@ -900,6 +914,9 @@
           logDiag("Error loading settings from bridge: " + e.message, "error");
         }
       }
+      // Load stored search grounding model from localStorage
+      const cachedSearchModel = localStorage.getItem('geminiSearchModel') || 'gemini-3.5-flash-lite';
+      document.getElementById('geminiSearchModelSelect').value = cachedSearchModel;
     }
 
     function saveSettingsAndClose() {
@@ -907,6 +924,7 @@
       const model = document.getElementById('geminiModelSelect').value;
       const voice = document.getElementById('geminiVoiceSelect').value;
       const mapsGround = document.getElementById('geminiMapsGroundingToggle').checked;
+      const searchModel = document.getElementById('geminiSearchModelSelect').value;
 
       if (window.AndroidInterface) {
         window.AndroidInterface.saveGeminiApiKey(apiKey);
@@ -916,6 +934,9 @@
         window.AndroidInterface.showToast("Map Assistance settings saved!");
         logDiag("Settings saved to native SharedPreferences.", "info");
       }
+      
+      // Save search model dynamically to localStorage
+      localStorage.setItem('geminiSearchModel', searchModel);
 
       toggleSettingsDrawer();
     }
@@ -1187,7 +1208,9 @@
         } catch(e) {}
       }
 
-      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+      // Read Background Search Model dynamically from drop-down selection
+      const searchModel = document.getElementById('geminiSearchModelSelect').value || 'gemini-3.5-flash-lite';
+      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${searchModel}:generateContent?key=${apiKey}`;
 
       // Prompt optimization: Completely removed any reference to hardcoded coordinates (e.g. 10.3015) to prevent coordinate anchoring bias.
       const promptText = `You are a precise physical location lookup tool grounded on Google Maps. ` +
@@ -1220,7 +1243,7 @@
         }
       };
 
-      logDiag(`Dispatching background Maps Grounding request for query: "${query}" near ${gps.placeName}...`, "info");
+      logDiag(`Dispatching background Maps Grounding request via ${searchModel} for query: "${query}" near ${gps.placeName}...`, "info");
 
       try {
         const response = await fetch(targetUrl, {
