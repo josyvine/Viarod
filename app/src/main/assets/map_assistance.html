@@ -850,8 +850,8 @@
 
     /**
      * DUAL-MODEL RELAY EXECUTOR:
-     * Calls standard gemini-2.5-flash with native google_maps grounding in the background [1].
-     * Obtains coordinates, draws route in OSMDroid, and returns results to Gemini Live session.
+     * Calls standard gemini-3.1-flash-lite with native google_maps grounding in the background.
+     * Obtains coordinates via a structured-metadata first approach, falling back to a prompt-controlled text parser.
      */
     async function executeBackgroundMapsQuery(query, callId) {
       let apiKey = document.getElementById('geminiApiKeyInput').value.trim();
@@ -868,9 +868,12 @@
 
       const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
 
+      // OPTION B: Refined system prompt ensuring strict coordination obedience
       const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
+                         `Use the verified coordinates and place details returned by the google_maps tool. ` +
                          `Provide the exact name, rating, address, and coordinates. ` +
-                         `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. For example: [PLOT: Saffron Live Foods | 10.2385, 76.2640]`;
+                         `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. ` +
+                         `Do not guess, generalize, or hallucinate these coordinates under any circumstances.`;
 
       const requestPayload = {
         contents: [
@@ -902,18 +905,60 @@
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
         logDiag(`Background Maps search complete: "${textResponse.substring(0, 100)}..."`, "info");
 
-        // Parse coordinates and plot OSRM route in native map
-        const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
+        let destName = "";
+        let lat = null;
+        let lng = null;
+        let extractionMethod = "";
+
+        // OPTION A: Extract coordinates directly from structured groundingMetadata
+        const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
+        if (groundingMetadata && groundingMetadata.groundingChunks) {
+          for (const chunk of groundingMetadata.groundingChunks) {
+            const url = chunk.web?.uri;
+            if (url && (url.includes("google.com/maps") || url.includes("maps.google"))) {
+              // Extract coordinates directly from the Google Maps URL parameters
+              // Format 1: @lat,lng
+              let match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+              if (match) {
+                lat = parseFloat(match[1]);
+                lng = parseFloat(match[2]);
+              } else {
+                // Format 2: q=lat,lng or ll=lat,lng
+                match = url.match(/[?&](q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                if (match) {
+                  lat = parseFloat(match[2]);
+                  lng = parseFloat(match[3]);
+                }
+              }
+              
+              if (lat !== null && lng !== null) {
+                destName = chunk.web.title || query;
+                extractionMethod = "structured groundingMetadata";
+                break;
+              }
+            }
+          }
+        }
+
+        // FALLBACK: If structured metadata extraction yields nothing, use the refined text parser (Option B)
+        if (lat === null || lng === null) {
+          const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
+          if (plotMatch) {
+            destName = plotMatch[1].trim();
+            lat = parseFloat(plotMatch[2]);
+            lng = parseFloat(plotMatch[3]);
+            extractionMethod = "text regex fallback";
+          }
+        }
+
         let routeMsg = "No exact coordinates could be parsed.";
 
-        if (plotMatch && window.AndroidInterface) {
-          const destName = plotMatch[1].trim();
-          const lat = parseFloat(plotMatch[2]);
-          const lng = parseFloat(plotMatch[3]);
-
+        if (lat !== null && lng !== null && window.AndroidInterface) {
           window.AndroidInterface.plotRouteToDestination(destName, lat, lng);
           routeMsg = `The route to ${destName} (${lat}, ${lng}) has been plotted with 10-meter markers on the OSMDroid map.`;
-          logDiag(`Parsed coordinates: ${destName} at (${lat}, ${lng}). Drawing OSMDroid route...`, "info");
+          logDiag(`Parsed coordinates via ${extractionMethod}: ${destName} at (${lat}, ${lng}). Drawing OSMDroid route...`, "info");
+        } else {
+          logDiag("Failed to extract coordinates from either structured metadata or text fallback.", "error");
         }
 
         // Return resolved location payload back to Gemini Live Websocket session
@@ -925,7 +970,7 @@
                   id: callId,
                   response: {
                     output: {
-                      success: true,
+                      success: (lat !== null && lng !== null),
                       details: textResponse,
                       mapRoutingStatus: routeMsg
                     }
