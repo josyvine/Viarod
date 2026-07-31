@@ -265,4 +265,4 @@ public class MapAssistanceBridge {
         }
         Log.d(TAG, "MapAssistanceBridge destroyed cleanly.");
     }
-} 
+}
