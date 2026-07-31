@@ -1189,13 +1189,14 @@
 
       const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
 
-      // FIX: Clean-slate directive and spatial proximity strict formatting to prevent coordinate anchoring (e.g. 10.3015) [1]
-      const promptText = `You MUST perform a completely fresh, independent, and mathematically isolated search. ` +
-                         `Disregard, ignore, and completely erase any previously mentioned latitude or longitude coordinates (such as 10.3015) from your active session memory. ` +
-                         `Find the exact, real-world physical coordinates of the place matching '${query}' strictly near Latitude ${gps.lat}, Longitude ${gps.lng} (Location: ${gps.placeName || 'Mala, Thrissur, Kerala, India'}). ` +
-                         `Do NOT guess, assume, or return the parent district or taluk coordinates (like Irinjalakuda town center) for broad names. If the query is a broad village, region, or junction, search for the exact local intersection, building, or bus stop. ` +
-                         `Provide the exact name, rating, address, and coordinates. ` +
-                         `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. For example: [PLOT: Saffron Live Foods | 10.2385, 76.2640]`;
+      // Prompt optimization: Completely removed any reference to hardcoded coordinates (e.g. 10.3015) to prevent coordinate anchoring bias.
+      const promptText = `You are a precise physical location lookup tool grounded on Google Maps. ` +
+                         `Search for the exact coordinates of the location matching the user's query: '${query}' strictly near Latitude ${gps.lat}, Longitude ${gps.lng} (Location context: ${gps.placeName || 'Mala, Thrissur, Kerala, India'}). ` +
+                         `Find the specific physical address, building, or landmark. Do not return broad district or general city center coordinates if a specific spot is named. ` +
+                         `Provide a very brief description containing the name, rating, address, and real physical coordinates. ` +
+                         `At the very end of your response, you MUST append this exact parseable tag of the single best result: [PLOT: Name | Lat, Lng]. ` +
+                         `For example: [PLOT: Saffron Live Foods | 10.2385, 76.2640]. ` +
+                         `Verify that the Lat and Lng coordinates you output in the [PLOT: ...] tag are the true coordinates of the found place, and not the search context's center coordinates (${gps.lat}, ${gps.lng}).`;
 
       const requestPayload = {
         contents: [
@@ -1207,7 +1208,16 @@
         ],
         tools: [
           { google_maps: {} } // Pure Google Maps Search Grounding
-        ]
+        ],
+        // Added toolConfig with retrievalConfig to bias Google Maps search locally to user's hardware coordinates [1]
+        toolConfig: {
+          retrievalConfig: {
+            latLng: {
+              latitude: gps.lat,
+              longitude: gps.lng
+            }
+          }
+        }
       };
 
       logDiag(`Dispatching background Maps Grounding request for query: "${query}" near ${gps.placeName}...`, "info");
