@@ -217,42 +217,6 @@ public class MapAssistanceBridge {
         });
     }
 
-    /**
-     * JS TRIGGER: Initiates the native simulated drive along the active OSRM polyline.
-     */
-    @JavascriptInterface
-    public void startDriveSimulation(final double speedKmh) {
-        mHandler.post(() -> {
-            if (mActivity != null) {
-                mActivity.startDriveSimulation(speedKmh);
-            }
-        });
-    }
-
-    /**
-     * JS TRIGGER: Pauses/stops the native simulated drive immediately.
-     */
-    @JavascriptInterface
-    public void stopDriveSimulation() {
-        mHandler.post(() -> {
-            if (mActivity != null) {
-                mActivity.stopDriveSimulation();
-            }
-        });
-    }
-
-    /**
-     * JS TRIGGER: Clears the OSRM route, destination marker, and simulation overlays upon user double-tap.
-     */
-    @JavascriptInterface
-    public void clearRouteOverlay() {
-        mHandler.post(() -> {
-            if (mActivity != null) {
-                mActivity.clearRouteOverlay();
-            }
-        });
-    }
-
     @JavascriptInterface
     public void showToast(final String message) {
         if (message == null) return;
