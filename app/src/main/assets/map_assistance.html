@@ -491,18 +491,19 @@
       bottom: 90px;
       left: 15px;
       right: 15px;
-      background: rgba(15, 23, 42, 0.95);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(56, 189, 248, 0.25);
+      background: rgba(15, 23, 42, 0.85); /* Translucent background */
+      backdrop-filter: blur(12px); /* Glass blur behind card */
+      border: 1px solid rgba(56, 189, 248, 0.25); /* Cyan borders */
       border-radius: 20px;
-      padding: 10px 16px;
+      padding: 16px 20px; /* Large readable padding */
       display: none; /* Shown dynamically when route is active */
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
       pointer-events: auto;
       z-index: 100;
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
       color: #fff;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .sim-row {
@@ -522,10 +523,10 @@
     }
 
     .sim-speed-box select {
-      padding: 4px 8px;
+      padding: 6px 10px;
       background: #1e293b;
       border: 1px solid #334155;
-      border-radius: 6px;
+      border-radius: 8px;
       color: #fff;
       outline: none;
     }
@@ -537,6 +538,33 @@
       cursor: pointer;
       border: 2px solid rgba(255, 255, 255, 0.8);
       box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+
+    /* COMPASS ADJACENT MINIMIZATION BUTTON STYLING */
+    .sim-minimized-card {
+      position: fixed;
+      top: 140px; /* Vertically positioned right beside the native compass */
+      right: 76px; /* Safe offset left of the vertical compass cluster */
+      width: 44px;
+      height: 44px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 50%;
+      display: none; /* Shown programmatically */
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 100;
+      pointer-events: auto;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      color: #38bdf8;
+      transition: all 0.2s ease-in-out;
+    }
+
+    .sim-minimized-card:active {
+      transform: scale(0.9);
+      background: rgba(15, 23, 42, 0.95);
     }
   </style>
 </head>
@@ -562,17 +590,25 @@
     <div id="transcriptBody">Connecting to Gemini Live...</div>
   </div>
 
-  <!-- Real-Time Simulated Drive Dashboard Card -->
+  <!-- Real-Time Simulated Drive Dashboard Card (ENHANCED TRANS-GLASSMORPHIC HUD) -->
   <div class="simulation-dashboard" id="simDashboard">
     <div class="sim-row">
       <div style="display:flex; align-items:center; gap:8px;">
-        <span class="material-symbols-outlined" style="color:#38bdf8;">directions_car</span>
-        <span style="font-size:13px; font-weight:bold;" id="simStatusLabel">Toy Car Simulation Idle</span>
+        <span class="material-symbols-outlined" style="color:#38bdf8; font-size: 22px;">directions_car</span>
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span style="font-size:14px; font-weight:bold;" id="simStatusLabel">Toy Car Simulation Idle</span>
+          <span style="font-size:11px; color:#94a3b8;" id="simDistanceTimeLabel">ETA: -- min | -- km remaining</span>
+        </div>
       </div>
-      <button class="save-btn" id="btnSimPlayPause" onclick="toggleSimPlayPause()" style="margin:0; padding:6px 14px; font-size:11px;">▶ Start Drive</button>
+      
+      <div style="display:flex; align-items:center; gap:8px;">
+        <!-- Minimize icon collapsing the board into a bubble beside compass -->
+        <span class="material-symbols-outlined" style="cursor:pointer; font-size:22px; color:#94a3b8; padding:4px;" onclick="minimizeSimulationDashboard()" title="Minimize Panel">minimize</span>
+        <button class="save-btn" id="btnSimPlayPause" onclick="toggleSimPlayPause()" style="margin:0; padding:8px 16px; font-size:12px;">▶ Start Drive</button>
+      </div>
     </div>
 
-    <div class="sim-row" style="border-top:1px solid rgba(255,255,255,0.1); padding-top:8px;">
+    <div class="sim-row" style="border-top:1px solid rgba(255,255,255,0.1); padding-top:10px;">
       <!-- Speed selector strictly between 5 km/h to 80 km/h -->
       <div class="sim-speed-box">
         <label for="simSpeedSelect">Sim Speed:</label>
@@ -591,17 +627,22 @@
       </div>
 
       <!-- Synthesizer Audio Engine Toggle Button -->
-      <button class="header-btn" id="btnSimSound" onclick="toggleEngineSound()" style="border-radius:18px; width:auto; padding:0 12px; font-size:10px; font-weight:bold;" title="Synthesizer Sound">
+      <button class="header-btn" id="btnSimSound" onclick="toggleEngineSound()" style="border-radius:18px; width:auto; padding:0 12px; height:34px; font-size:11px; font-weight:bold;" title="Synthesizer Sound">
         🔇 Sound: OFF
       </button>
 
       <!-- Dynamic Paint Picker -->
-      <div style="display:flex; gap:6px;">
+      <div style="display:flex; gap:8px;">
         <div class="color-dot" style="background:#e62222;" onclick="setCarColor('#e62222', '#8b0000', '#ff6b6b')"></div>
         <div class="color-dot" style="background:#2563eb;" onclick="setCarColor('#2563eb', '#1e3a8a', '#60a5fa')"></div>
         <div class="color-dot" style="background:#10b981;" onclick="setCarColor('#10b981', '#064e3b', '#34d399')"></div>
       </div>
     </div>
+  </div>
+
+  <!-- COMPASS ADJACENT MINIMIZED BUBBLE CARD -->
+  <div class="sim-minimized-card" id="simMinimizedCard" onclick="restoreSimulationDashboard()" title="Expand Simulation Panel">
+    <span class="material-symbols-outlined" style="font-size: 22px;">directions_car</span>
   </div>
 
   <!-- Bottom Floating Control Bar -->
@@ -1130,7 +1171,7 @@
 
     /**
      * DUAL-MODEL RELAY EXECUTOR:
-     * Calls standard gemini-2.5-flash with native google_maps grounding in the background [1].
+     * Calls standard gemini-3.5-flash-lite with native google_maps grounding in the background [1].
      * Obtains coordinates, draws route in OSMDroid, and returns results to Gemini Live session.
      */
     async function executeBackgroundMapsQuery(query, callId) {
@@ -1148,7 +1189,11 @@
 
       const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
 
-      const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
+      // FIX: Clean-slate directive and spatial proximity strict formatting to prevent coordinate anchoring (e.g. 10.3015) [1]
+      const promptText = `You MUST perform a completely fresh, independent, and mathematically isolated search. ` +
+                         `Disregard, ignore, and completely erase any previously mentioned latitude or longitude coordinates (such as 10.3015) from your active session memory. ` +
+                         `Find the exact, real-world physical coordinates of the place matching '${query}' strictly near Latitude ${gps.lat}, Longitude ${gps.lng} (Location: ${gps.placeName || 'Mala, Thrissur, Kerala, India'}). ` +
+                         `Do NOT guess, assume, or return the parent district or taluk coordinates (like Irinjalakuda town center) for broad names. If the query is a broad village, region, or junction, search for the exact local intersection, building, or bus stop. ` +
                          `Provide the exact name, rating, address, and coordinates. ` +
                          `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. For example: [PLOT: Saffron Live Foods | 10.2385, 76.2640]`;
 
@@ -1180,7 +1225,7 @@
 
         const data = await response.json();
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
-        logDiag(`Background Maps search complete: "${textResponse.substring(0, 100)}..."`, "info");
+        logDiag("Background Maps search complete: " + textResponse.substring(0, 100) + "...", "info");
 
         // Parse coordinates and plot OSRM route in native map
         const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
@@ -1503,11 +1548,12 @@
       }
     }
 
+    // Dynamic scale ratios updated smoothly to map maximum 80 km/h [1]
     function updateEngineSound(speedKmh) {
       if (!soundEnabled || !audioCtx) return;
 
       const now = audioCtx.currentTime;
-      // Map 5km/h to 80km/h linearly to audio synthesizer values
+      // Map 5km/h to 80km/h linearly to audio synthesizer values [1]
       const ratio = (speedKmh - 5.0) / 75.0; // 0.0 to 1.0 range
 
       const pitch = 45 + (ratio * 55);
@@ -1562,6 +1608,81 @@
       }
     }
 
+    // Dynamic push update handler triggered on every 50ms tick from native MapAssistanceActivity [1]
+    window.updateSimulationProgress = function(remainingDistanceMeters, nextWaypointName, nextWaypointDistanceMeters) {
+      const labelEl = document.getElementById('simDistanceTimeLabel');
+      if (labelEl) {
+        // Calculate dynamic ETA based on current target speed in meters/second [1]
+        const speedMs = (simulationSpeedKmh * 1000.0) / 3600.0;
+        const etaSeconds = speedMs > 0 ? (remainingDistanceMeters / speedMs) : 0;
+        const etaMinutes = Math.floor(etaSeconds / 60);
+        const etaRemainingSeconds = Math.round(etaSeconds % 60);
+
+        const distanceKm = (remainingDistanceMeters / 1000.0).toFixed(2);
+        
+        let labelText = `ETA: ${etaMinutes}m ${etaRemainingSeconds}s | ${distanceKm} km remaining`;
+        
+        // Append nearest upcoming stop details dynamically to the dashboard sub-label [1]
+        if (nextWaypointName && nextWaypointName !== "None") {
+            const nextStopDistanceKm = (nextWaypointDistanceMeters / 1000.0).toFixed(2);
+            labelText += ` | Next: ${nextWaypointName} (${nextStopDistanceKm} km)`;
+        }
+        
+        labelEl.innerText = labelText;
+      }
+    };
+
+    // Minimization Handler: Collapses panel into a small bubble placed beside compass [1]
+    function minimizeSimulationDashboard() {
+      document.getElementById('simDashboard').style.display = 'none';
+      document.getElementById('simMinimizedCard').style.display = 'flex';
+      logDiag("Minimized simulation control dashboard.", "info");
+    }
+
+    // Restoration Handler: Restores the enlarged translucent panel [1]
+    function restoreSimulationDashboard() {
+      document.getElementById('simMinimizedCard').style.display = 'none';
+      document.getElementById('simDashboard').style.display = 'flex';
+      logDiag("Restored simulation control dashboard.", "info");
+    }
+
+    // Geofencing Spoken Alert Callback called natively by Java when entering 15m radius of a milestone [1]
+    window.onReachedWaypoint = function(waypointName) {
+      logDiag(`GEOFENCE ALERT: Car reached milestone: "${waypointName}"!`, "system");
+      
+      // Update status label momentarily
+      const label = document.getElementById('simStatusLabel');
+      if (label) {
+        label.innerText = `Reached: ${waypointName}`;
+        setTimeout(() => {
+          if (isSimulatingDrive) {
+            label.innerText = `Simulation Active: Driving at ${simulationSpeedKmh} km/h`;
+          } else {
+            label.innerText = "Simulation Paused";
+          }
+        }, 3500);
+      }
+
+      // If active Gemini Live WebSocket connection is open, inject a silent, high-priority spoken alert turn [1]
+      if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+        const spokenAlertMessage = {
+          clientContent: {
+            turns: [
+              {
+                role: "user",
+                parts: [
+                  { text: `[SYSTEM_ALERT_PROXIMITY_NOTIFICATION] The user has just reached this physical waypoint milestone along the road: "${waypointName}". Instantly announce this exact milestone in Malayalam to the user in a very brief, friendly, 1-sentence vocal alert. Do not include any long chatty introduction or prefaces.` }
+                ]
+              }
+            ],
+            turnComplete: true
+          }
+        };
+        liveWs.send(JSON.stringify(spokenAlertMessage));
+        logDiag(`Injected spoken proximity system alert for "${waypointName}" to Gemini Live session.`, "info");
+      }
+    };
+
     // Triggered externally by Android native GestureDetector upon double-tap to reset/clear overlays
     window.onDisplayDoubleTapped = function() {
       logDiag("Android GestureDetector: Double-tap registered. Clearing all map routes and ending active simulation...", "system");
@@ -1573,6 +1694,7 @@
 
       // Hide dashboards
       hideSimulationControls();
+      document.getElementById('simMinimizedCard').style.display = 'none'; // Ensure minimized card is also hidden
 
       // Clear OSRM route in native code
       if (window.AndroidInterface && window.AndroidInterface.clearRouteOverlay) {
