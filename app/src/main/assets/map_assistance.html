@@ -737,7 +737,7 @@
           try {
             const gps = JSON.parse(window.AndroidInterface.getGpsLocation());
             const compass = JSON.parse(window.AndroidInterface.getCompassHeading());
-            
+
             spatialPrompt += `CRITICAL LIVE LOCATION & COMPASS:\n`;
             spatialPrompt += `- Your user's current live location is: ${gps.placeName || 'Mala, Thrissur, Kerala, India'} (Exact GPS: Latitude ${gps.lat}, Longitude ${gps.lng}).\n`;
             spatialPrompt += `- User Facing Direction: ${compass.degrees.toFixed(0)}° (${compass.direction}).\n\n`;
@@ -866,8 +866,8 @@
         } catch(e) {}
       }
 
-      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-      
+      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`;
+
       const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
                          `Provide the exact name, rating, address, and coordinates. ` +
                          `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. For example: [PLOT: Saffron Live Foods | 10.2385, 76.2640]`;
@@ -905,12 +905,12 @@
         // Parse coordinates and plot OSRM route in native map
         const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
         let routeMsg = "No exact coordinates could be parsed.";
-        
+
         if (plotMatch && window.AndroidInterface) {
           const destName = plotMatch[1].trim();
           const lat = parseFloat(plotMatch[2]);
           const lng = parseFloat(plotMatch[3]);
-          
+
           window.AndroidInterface.plotRouteToDestination(destName, lat, lng);
           routeMsg = `The route to ${destName} (${lat}, ${lng}) has been plotted with 10-meter markers on the OSMDroid map.`;
           logDiag(`Parsed coordinates: ${destName} at (${lat}, ${lng}). Drawing OSMDroid route...`, "info");
@@ -940,7 +940,7 @@
 
       } catch(e) {
         logDiag("Background Maps Grounding query failed: " + e.message, "error");
-        
+
         // Return failure message so Live model doesn't hang waiting
         if (liveWs && liveWs.readyState === WebSocket.OPEN) {
           const responseMessage = {
