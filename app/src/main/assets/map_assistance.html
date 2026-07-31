@@ -1017,7 +1017,7 @@
           try {
             const gps = JSON.parse(window.AndroidInterface.getGpsLocation());
             const compass = JSON.parse(window.AndroidInterface.getCompassHeading());
-            
+
             spatialPrompt += `CRITICAL LIVE LOCATION & COMPASS:\n`;
             spatialPrompt += `- Your user's current live location is: ${gps.placeName || 'Mala, Thrissur, Kerala, India'} (Exact GPS: Latitude ${gps.lat}, Longitude ${gps.lng}).\n`;
             spatialPrompt += `- User Facing Direction: ${compass.degrees.toFixed(0)}° (${compass.direction}).\n\n`;
@@ -1146,8 +1146,8 @@
         } catch(e) {}
       }
 
-      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-      
+      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+
       const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
                          `Provide the exact name, rating, address, and coordinates. ` +
                          `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. For example: [PLOT: Saffron Live Foods | 10.2385, 76.2640]`;
@@ -1185,12 +1185,12 @@
         // Parse coordinates and plot OSRM route in native map
         const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
         let routeMsg = "No exact coordinates could be parsed.";
-        
+
         if (plotMatch && window.AndroidInterface) {
           const destName = plotMatch[1].trim();
           const lat = parseFloat(plotMatch[2]);
           const lng = parseFloat(plotMatch[3]);
-          
+
           window.AndroidInterface.plotRouteToDestination(destName, lat, lng);
           routeMsg = `The route to ${destName} (${lat}, ${lng}) has been plotted with 10-meter markers on the OSMDroid map.`;
           logDiag(`Parsed coordinates: ${destName} at (${lat}, ${lng}). Drawing OSMDroid route...`, "info");
@@ -1223,7 +1223,7 @@
 
       } catch(e) {
         logDiag("Background Maps Grounding query failed: " + e.message, "error");
-        
+
         // Return failure message so Live model doesn't hang waiting
         if (liveWs && liveWs.readyState === WebSocket.OPEN) {
           const responseMessage = {
@@ -1403,7 +1403,7 @@
       document.getElementById('simDashboard').style.display = 'none';
       document.getElementById('carMapAvatar').style.display = 'none';
       logDiag("Hidden Toy Car and Simulation controls.", "info");
-      
+
       // Stop sound if active
       if (soundEnabled) {
         toggleEngineSound();
@@ -1509,7 +1509,7 @@
       const now = audioCtx.currentTime;
       // Map 5km/h to 80km/h linearly to audio synthesizer values
       const ratio = (speedKmh - 5.0) / 75.0; // 0.0 to 1.0 range
-      
+
       const pitch = 45 + (ratio * 55);
       const cutoff = 180 + (ratio * 320);
       const volume = 0.22 + (ratio * 0.06);
@@ -1524,7 +1524,7 @@
     function toggleSimPlayPause() {
       const btn = document.getElementById('btnSimPlayPause');
       const label = document.getElementById('simStatusLabel');
-      
+
       isSimulatingDrive = !isSimulatingDrive;
 
       if (isSimulatingDrive) {
@@ -1532,7 +1532,7 @@
         btn.style.background = "#ef4444";
         label.innerText = `Simulation Active: Driving at ${simulationSpeedKmh} km/h`;
         logDiag(`Starting real-time map drive simulation at ${simulationSpeedKmh} km/h...`, "info");
-        
+
         if (window.AndroidInterface && window.AndroidInterface.startDriveSimulation) {
           window.AndroidInterface.startDriveSimulation(simulationSpeedKmh);
         }
@@ -1551,11 +1551,11 @@
     function onSimSpeedChanged(val) {
       simulationSpeedKmh = parseFloat(val);
       updateEngineSound(simulationSpeedKmh);
-      
+
       if (isSimulatingDrive) {
         document.getElementById('simStatusLabel').innerText = `Simulation Active: Driving at ${simulationSpeedKmh} km/h`;
         logDiag(`Updating live driving simulation speed to ${simulationSpeedKmh} km/h.`, "info");
-        
+
         if (window.AndroidInterface && window.AndroidInterface.startDriveSimulation) {
           window.AndroidInterface.startDriveSimulation(simulationSpeedKmh);
         }
@@ -1565,15 +1565,15 @@
     // Triggered externally by Android native GestureDetector upon double-tap to reset/clear overlays
     window.onDisplayDoubleTapped = function() {
       logDiag("Android GestureDetector: Double-tap registered. Clearing all map routes and ending active simulation...", "system");
-      
+
       // Reset local simulation states
       if (isSimulatingDrive) {
         toggleSimPlayPause(); // Toggle back to idle
       }
-      
+
       // Hide dashboards
       hideSimulationControls();
-      
+
       // Clear OSRM route in native code
       if (window.AndroidInterface && window.AndroidInterface.clearRouteOverlay) {
         window.AndroidInterface.clearRouteOverlay();
