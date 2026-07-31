@@ -757,7 +757,7 @@
           setup: {
             model: "models/" + modelId,
             generationConfig: {
-              responseModalities: ["AUDIO"],
+              responseModalalities: ["AUDIO"],
               speechConfig: {
                 voiceConfig: {
                   prebuiltVoiceConfig: { voiceName: voiceName }
@@ -872,10 +872,10 @@
 
       // OPTION B: Refined system prompt ensuring strict coordination obedience
       const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
-                         `Use the verified coordinates and place details returned by the googleMaps tool. ` +
-                         `Provide the exact name, rating, address, and coordinates. ` +
-                         `At the very end of your response, you MUST append this exact parseable tag: [PLOT: Name | Lat, Lng] of the single best nearby result. ` +
-                         `Do not guess, generalize, or hallucinate these coordinates under any circumstances.`;
+                         `Use the verified place details, place_id, and CID returned by the googleMaps tool. ` +
+                         `Provide the exact name, rating, address, and information. ` +
+                         `Do not invent or guess latitude and longitude coordinates. Rely on the googleMaps metadata tools to provide place IDs. ` +
+                         `At the very end of your response, you MUST append this exact parseable tag containing the name and fallback coordinates only if verified: [PLOT: Name | Lat, Lng] of the single best nearby result.`;
 
       // CONFIG SYNC: Use the official googleMaps tool with latLng retrieval context
       const requestPayload = {
@@ -931,18 +931,37 @@
               
               const url = chunk.maps.uri;
               if (url) {
-                // Extract coordinates directly from the URL parameters if present
-                let match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-                if (match) {
-                  lat = parseFloat(match[1]);
-                  lng = parseFloat(match[2]);
-                  extractionMethod = "native maps chunk URL parameters";
-                } else {
-                  match = url.match(/[?&](q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                // Try CID redirect extraction via Android native bridge
+                const cidMatch = url.match(/cid=(\d+)/);
+                if (cidMatch && window.AndroidInterface && window.AndroidInterface.getCoordinatesFromCid) {
+                  try {
+                    let cid = cidMatch[1];
+                    let redirect = window.AndroidInterface.getCoordinatesFromCid(cid);
+                    let pos = redirect.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+                    if (pos) {
+                      lat = parseFloat(pos[1]);
+                      lng = parseFloat(pos[2]);
+                      extractionMethod = "Google CID redirect";
+                    }
+                  } catch (bridgeErr) {
+                    logDiag("CID bridge resolution failed: " + bridgeErr.message, "warning");
+                  }
+                }
+
+                // Standard URL parameter fallback if bridge didn't resolve or didn't return matches
+                if (lat === null || lng === null) {
+                  let match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
                   if (match) {
-                    lat = parseFloat(match[2]);
-                    lng = parseFloat(match[3]);
-                    extractionMethod = "native maps chunk URL query parameters";
+                    lat = parseFloat(match[1]);
+                    lng = parseFloat(match[2]);
+                    extractionMethod = "native maps chunk URL parameters";
+                  } else {
+                    match = url.match(/[?&](q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                    if (match) {
+                      lat = parseFloat(match[2]);
+                      lng = parseFloat(match[3]);
+                      extractionMethod = "native maps chunk URL query parameters";
+                    }
                   }
                 }
               }
