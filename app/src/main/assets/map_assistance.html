@@ -713,7 +713,7 @@
         // DUAL-MODEL RELAY REGISTER: Define Custom Maps Search function for Gemini Live Model
         const customTools = [
           {
-            functionDeclarations: [
+            function_declarations: [ // Strict snake_case tool keys
               {
                 name: "find_places_on_google_maps",
                 description: "Queries Google Maps database to find nearby restaurants, landmarks, shops, or locations based on user GPS coordinates. Call this whenever the user asks for directions, places, or landmarks nearby.",
@@ -753,22 +753,24 @@
         spatialPrompt += `3. Always prioritize immediate local knowledge near the user's GPS coordinates.\n`;
         spatialPrompt += `4. If the user asks for places, directions, or landmarks, you MUST immediately call 'find_places_on_google_maps' tool with the query.\n`;
 
+        // Strict snake_case schema alignment for gRPC JSON transcoding
         const setupMessage = {
           setup: {
             model: "models/" + modelId,
-            generationConfig: {},
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: voiceName }
+            generation_config: {
+              response_modalities: ["AUDIO"],
+              speech_config: {
+                voice_config: {
+                  prebuilt_voice_config: {
+                    voice_name: voiceName
+                  }
+                }
               }
             },
-            systemInstruction: {
+            system_instruction: {
               parts: [{ text: spatialPrompt }]
             },
-            tools: customTools,
-            inputAudioTranscription: {},
-            outputAudioTranscription: {}
+            tools: customTools
           }
         };
 
