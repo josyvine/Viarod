@@ -456,11 +456,11 @@
       <input type="password" id="geminiApiKeyInput" placeholder="Paste AIzaSy... API key" />
     </div>
 
+    <!-- Live model dropdown remains dedicated strictly to Live WebSocket models -->
     <div class="form-group">
       <label for="geminiModelSelect">Live Model Selection</label>
       <select id="geminiModelSelect">
-        <option value="gemini-3.5-flash-lite" selected>Gemini 3.5 Flash Lite</option>
-        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+        <option value="gemini-3.1-flash-live-preview" selected>Gemini 3.1 Flash Live Preview</option>
         <option value="gemini-2.5-flash-native-audio-preview-12-2025">Gemini 2.5 Flash Native Audio</option>
         <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp (Live)</option>
       </select>
@@ -572,7 +572,7 @@
       if (window.AndroidInterface) {
         try {
           document.getElementById('geminiApiKeyInput').value = window.AndroidInterface.getGeminiApiKey() || '';
-          document.getElementById('geminiModelSelect').value = window.AndroidInterface.getGeminiModel() || 'gemini-3.5-flash-lite';
+          document.getElementById('geminiModelSelect').value = window.AndroidInterface.getGeminiModel() || 'gemini-3.1-flash-live-preview';
           document.getElementById('geminiVoiceSelect').value = window.AndroidInterface.getGeminiVoice() || 'Puck';
           document.getElementById('geminiMapsGroundingToggle').checked = window.AndroidInterface.getMapGroundingEnabled();
           logDiag("Settings loaded from native AndroidInterface.", "info");
@@ -851,7 +851,7 @@
 
     /**
      * DUAL-MODEL RELAY EXECUTOR:
-     * Calls standard gemini-3.5-flash-lite with native googleMaps grounding in the background.
+     * Calls standard gemini-3.5-flash-lite (high quota REST model) with native googleMaps grounding.
      * Obtains coordinates via a structured-metadata first approach, falling back to a prompt-controlled text parser.
      */
     async function executeBackgroundMapsQuery(query, callId) {
@@ -867,8 +867,8 @@
         } catch(e) {}
       }
 
-      const modelId = document.getElementById('geminiModelSelect').value;
-      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+      // Hardcode background to use gemini-3.5-flash-lite for maximum 500 RPD quota
+      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
 
       // OPTION B: Refined system prompt ensuring strict coordination obedience
       const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
