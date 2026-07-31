@@ -573,14 +573,20 @@
     </div>
 
     <div class="sim-row" style="border-top:1px solid rgba(255,255,255,0.1); padding-top:8px;">
-      <!-- Speed selector strictly between 5 km/h to 8 km/h -->
+      <!-- Speed selector strictly between 5 km/h to 80 km/h -->
       <div class="sim-speed-box">
         <label for="simSpeedSelect">Sim Speed:</label>
         <select id="simSpeedSelect" onchange="onSimSpeedChanged(this.value)">
           <option value="5">5 km/h</option>
-          <option value="6" selected>6 km/h</option>
-          <option value="7">7 km/h</option>
-          <option value="8">8 km/h</option>
+          <option value="10">10 km/h</option>
+          <option value="15">15 km/h</option>
+          <option value="20" selected>20 km/h</option>
+          <option value="30">30 km/h</option>
+          <option value="40">40 km/h</option>
+          <option value="50">50 km/h</option>
+          <option value="60">60 km/h</option>
+          <option value="70">70 km/h</option>
+          <option value="80">80 km/h</option>
         </select>
       </div>
 
@@ -824,7 +830,7 @@
 
     // Simulation State
     let isSimulatingDrive = false;
-    let simulationSpeedKmh = 6;
+    let simulationSpeedKmh = 20;
 
     // WebAudio Synthesizer variables
     let audioCtx = null;
@@ -1501,8 +1507,8 @@
       if (!soundEnabled || !audioCtx) return;
 
       const now = audioCtx.currentTime;
-      // Map 5km/h to 8km/h linearly to audio synthesizer values
-      const ratio = (speedKmh - 5.0) / 3.0; // 0.0 to 1.0 range
+      // Map 5km/h to 80km/h linearly to audio synthesizer values
+      const ratio = (speedKmh - 5.0) / 75.0; // 0.0 to 1.0 range
       
       const pitch = 45 + (ratio * 55);
       const cutoff = 180 + (ratio * 320);
