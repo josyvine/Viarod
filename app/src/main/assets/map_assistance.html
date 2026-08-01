@@ -1205,12 +1205,12 @@
       // Hardcode background to use gemini-3.5-flash-lite for maximum 500 RPD quota
       const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
 
-      // OPTION B: Refined system prompt ensuring strict coordination obedience
-      const promptText = `Find the nearest place matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
-                         `Use the verified place details, place_id, and CID returned by the googleMaps tool. ` +
+      // OPTION B / UPDATE 1: Rewritten background prompt to strictly support plurality and retrieve up to 5 nearby options
+      const promptText = `Find all nearby places matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
+                         `Provide a list of up to 5 verified results. Use the verified place details, place_id, and CID returned by the googleMaps tool. ` +
                          `Provide the exact name, rating, address, and information. ` +
                          `Do not invent or guess latitude and longitude coordinates. Rely on the googleMaps metadata tools to provide place IDs. ` +
-                         `At the very end of your response, you MUST append this exact parseable tag containing the name and fallback coordinates only if verified: [PLOT: Name | Lat, Lng] of the single best nearby result.`;
+                         `For EACH verified candidate, append a separate parseable tag at the end of your response: [PLOT: Name | Lat, Lng]. There must be a distinct [PLOT: ...] tag for every single place listed.`;
 
       // CONFIG SYNC: Use the official googleMaps tool with latLng retrieval context
       const requestPayload = {
@@ -1250,7 +1250,7 @@
         const data = await response.json();
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
         
-        // FIX 2 IMPLEMENTED: Removed .substring(0, 100) and passed full textResponse to logDiag
+        // UPDATE 4: Log truncation fully removed so that the raw API response logs unclipped
         logDiag("Background Maps search complete: " + textResponse, "info");
 
         let markersArray = [];
@@ -1317,41 +1317,65 @@
           }
         }
 
-        // Fallback to text parsing regex if both meta and Nominatim failed for this specific place
-        if (lat === null || lng === null) {
-          const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
-          if (plotMatch) {
-            destName = plotMatch[1].trim();
-            lat = parseFloat(plotMatch[2]);
-            lng = parseFloat(plotMatch[3]);
-            extractionMethod = "text regex fallback";
+        // UPDATE 2: Option B rewritten to iterate globally and append multiple unique candidates with deduplication
+        const plotRegex = /\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/gi;
+        let match;
+        while ((match = plotRegex.exec(textResponse)) !== null) {
+          const matchedName = match[1].trim();
+          const matchedLat = parseFloat(match[2]);
+          const matchedLng = parseFloat(match[3]);
+
+          // Delta duplicate coordinate checking (0.0001 degrees)
+          const isDuplicate = markersArray.some(m => 
+            Math.abs(m.lat - matchedLat) < 0.0001 && Math.abs(m.lng - matchedLng) < 0.0001
+          );
+
+          if (!isDuplicate) {
+            markersArray.push({
+              name: matchedName,
+              lat: matchedLat,
+              lng: matchedLng,
+              info: "Parsed via Option B global text regex"
+            });
+            logDiag(`Option B regex matched and added unique location: "${matchedName}" at (${matchedLat}, ${matchedLng})`, "info");
+            
+            // Re-populate singular variables as generic fallback for Option C fallback processing
+            if (lat === null || lng === null) {
+              destName = matchedName;
+              lat = matchedLat;
+              lng = matchedLng;
+              extractionMethod = "text regex fallback";
+            }
+          } else {
+            logDiag(`Option B coordinate duplicate skipped for parsed candidate: "${matchedName}" at (${matchedLat}, ${matchedLng})`, "info");
           }
         }
 
-        // OPTION C FALLBACK: Nominatim Geocoding Verification (OpenStreetMap Ground Truth with multilingual support) per result
+        // OPTION C / UPDATE 3: Completely rewritten Option C fallback geocoding using Spatial Viewbox Biasing & Local Context Parsing
         if (destName) {
           try {
-            // FIX 1 IMPLEMENTED: Calculating the Spatial Bounding Box parameters
-            const west = gps.lng - 0.15;
-            const east = gps.lng + 0.15;
-            const north = gps.lat + 0.15;
-            const south = gps.lat - 0.15;
-            const viewboxParams = `&viewbox=${west},${north},${east},${south}&bounded=0`;
-
-            // FIX 1 IMPLEMENTED: Parsing and extracting the local town context from gps.placeName
+            // 1. Town Context Extraction: Parse specific segments from gps.placeName
             let localContext = "";
             if (gps.placeName) {
-              const broadSegments = ["india", "kerala"];
+              const broadTerms = ["india", "kerala", "state", "country"];
               const segments = gps.placeName.split(",")
                 .map(s => s.trim())
-                .filter(s => s.length > 0 && !broadSegments.includes(s.toLowerCase()));
+                .filter(s => s.length > 0 && !broadTerms.includes(s.toLowerCase()));
+              // Extract first 1 or 2 specific local segments
               const specificSegments = segments.slice(0, 2);
               if (specificSegments.length > 0) {
                 localContext = specificSegments.join(", ");
               }
             }
 
-            // Construct enriched search query incorporating local town context
+            // 2. Calculate geographic bounding box (approx 15-20km radius bias)
+            const west = gps.lng - 0.15;
+            const east = gps.lng + 0.15;
+            const north = gps.lat + 0.15;
+            const south = gps.lat - 0.15;
+            const viewboxParams = `&viewbox=${west},${north},${east},${south}&bounded=0`;
+
+            // 3. Query Enrichment
             let searchQuery = "";
             if (localContext) {
               searchQuery = `${destName}, ${localContext}`;
@@ -1378,7 +1402,7 @@
 
             logDiag(`Performing Nominatim geocoding check for: "${searchQuery}"...`, "info");
 
-            // FIX 1 IMPLEMENTED: Appending the viewboxParams to the primary fetch call
+            // 4. Append viewboxParams to primary Nominatim fetch
             let geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1${viewboxParams}`, {
               headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
             });
@@ -1388,7 +1412,7 @@
               geoData = await geoResponse.json();
             }
 
-            // If the primary lookup yielded no results, fall back to searching with the original English query (also enriched)
+            // If primary lookup has no results, fall back to English query
             let fallbackQuery = "";
             if (localContext) {
               fallbackQuery = `${query}, ${localContext}`;
@@ -1399,7 +1423,7 @@
               fallbackQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
             }
 
-            // FIX 1 IMPLEMENTED: Appending viewboxParams to the fallback fetch call as well
+            // Append viewboxParams to fallback Nominatim fetch as well
             if ((!geoData || geoData.length === 0) && query && searchQuery !== fallbackQuery) {
               logDiag(`Primary Nominatim check yielded no results. Trying English query fallback: "${fallbackQuery}"...`, "info");
               geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fallbackQuery)}&format=json&limit=1${viewboxParams}`, {
@@ -1411,10 +1435,29 @@
             }
 
             if (geoData && geoData.length > 0) {
-              lat = parseFloat(geoData[0].lat);
-              lng = parseFloat(geoData[0].lon);
-              extractionMethod = "Nominatim geocoding database";
-              logDiag(`Nominatim successfully verified location at (${lat}, ${lng})`, "info");
+              const matchedLat = parseFloat(geoData[0].lat);
+              const matchedLng = parseFloat(geoData[0].lon);
+
+              // Coordinate duplication check (0.0001 degrees)
+              const isDuplicate = markersArray.some(m => 
+                Math.abs(m.lat - matchedLat) < 0.0001 && Math.abs(m.lng - matchedLng) < 0.0001
+              );
+
+              if (!isDuplicate) {
+                lat = matchedLat;
+                lng = matchedLng;
+                extractionMethod = "Nominatim geocoding database";
+                logDiag(`Nominatim successfully verified location at (${lat}, ${lng})`, "info");
+
+                markersArray.push({
+                  name: destName || query,
+                  lat: lat,
+                  lng: lng,
+                  info: "Verified via Nominatim spatial fallback query"
+                });
+              } else {
+                logDiag(`Nominatim verification result at (${matchedLat}, ${matchedLng}) is a duplicate, skipping.`, "info");
+              }
             }
           } catch(geoError) {
             logDiag("Nominatim geocoding check failed: " + geoError.message, "warning");
@@ -1683,6 +1726,7 @@
 
     /* --- TOY CAR SIMULATION GRAPHICS & SOUND SYNTH LOGIC --- */
 
+    // Sound/Sim control drawer configurations
     function showSimulationControls() {
       document.getElementById('simDashboard').style.display = 'flex';
       document.getElementById('carMapAvatar').style.display = 'block';
