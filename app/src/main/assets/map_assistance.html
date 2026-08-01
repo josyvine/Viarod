@@ -1372,6 +1372,17 @@
           }
         }
 
+        // FIX FOR GLITCH 1: Sync and populate markersArray with resolved Option B/C fallback coordinates if Option A was empty
+        if (markersArray.length === 0 && lat !== null && lng !== null) {
+          markersArray.push({
+            name: destName || query,
+            lat: lat,
+            lng: lng,
+            info: `Resolved via fallback verification (${extractionMethod})`
+          });
+          logDiag(`Successfully resolved fallback coordinates for "${destName || query}" via ${extractionMethod} at (${lat}, ${lng})`, "info");
+        }
+
         // Plot markers on the native map
         if (markersArray.length > 0 && window.AndroidInterface && window.AndroidInterface.plotMultipleMarkers) {
           window.AndroidInterface.plotMultipleMarkers(JSON.stringify(markersArray));
@@ -1610,34 +1621,6 @@
         bytes[i] = binaryString.charCodeAt(i);
       }
       return bytes.buffer;
-    }
-
-    function arrayBufferToBase64(buffer) {
-      let binary = '';
-      const bytes = new Uint8Array(buffer);
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return window.btoa(binary);
-    }
-
-    /* --- TOY CAR SIMULATION GRAPHICS & SOUND SYNTH LOGIC --- */
-
-    function showSimulationControls() {
-      document.getElementById('simDashboard').style.display = 'flex';
-      document.getElementById('carMapAvatar').style.display = 'block';
-      logDiag("Revealed Toy Car and Simulation control dashboard.", "info");
-    }
-
-    function hideSimulationControls() {
-      document.getElementById('simDashboard').style.display = 'none';
-      document.getElementById('carMapAvatar').style.display = 'none';
-      logDiag("Hidden Toy Car and Simulation controls.", "info");
-
-      // Stop sound if active
-      if (soundEnabled) {
-        toggleEngineSound();
-      }
     }
 
     // Dynamic car color modification
