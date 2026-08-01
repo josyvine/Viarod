@@ -293,6 +293,26 @@ public class MapAssistanceBridge {
         mPrefs.edit().putBoolean(AppConstants.PREF_SEARCH_GROUNDING, enabled).apply();
     }
 
+    @JavascriptInterface
+    public String getSearchMode() {
+        return mPrefs.getString("pref_search_mode", "google");
+    }
+
+    @JavascriptInterface
+    public void saveSearchMode(String mode) {
+        mPrefs.edit().putString("pref_search_mode", mode != null ? mode.trim() : "google").apply();
+    }
+
+    @JavascriptInterface
+    public int getSearchRadius() {
+        return mPrefs.getInt("pref_search_radius", 1000);
+    }
+
+    @JavascriptInterface
+    public void saveSearchRadius(int radius) {
+        mPrefs.edit().putInt("pref_search_radius", radius).apply();
+    }
+
     /**
      * Triggered by Gemini JS when Gemini identifies a location destination to navigate towards.
      * Tells MapAssistanceActivity on the main thread to fetch OSRM route and plot 10m markers.
