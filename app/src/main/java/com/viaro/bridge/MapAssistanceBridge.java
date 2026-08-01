@@ -188,6 +188,18 @@ public class MapAssistanceBridge {
         });
     }
 
+    /**
+     * JS INTERFACE: Informs the native container whether a modal settings overlay is currently open on the screen.
+     */
+    @JavascriptInterface
+    public void setModalOpen(final boolean open) {
+        mHandler.post(() -> {
+            if (mActivity != null) {
+                mActivity.setModalOpen(open);
+            }
+        });
+    }
+
     @JavascriptInterface
     public String getGpsLocation() {
         JSONObject obj = new JSONObject();
