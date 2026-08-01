@@ -1249,7 +1249,9 @@
 
         const data = await response.json();
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
-        logDiag(`Background Maps search complete: "${textResponse.substring(0, 100)}..."`, "info");
+        
+        // FIX 2 IMPLEMENTED: Removed .substring(0, 100) and passed full textResponse to logDiag
+        logDiag("Background Maps search complete: " + textResponse, "info");
 
         let markersArray = [];
         let destName = "";
@@ -1329,19 +1331,55 @@
         // OPTION C FALLBACK: Nominatim Geocoding Verification (OpenStreetMap Ground Truth with multilingual support) per result
         if (destName) {
           try {
-            // Try geocoding the resolved destName first
-            let searchQuery = destName.toLowerCase().includes("kerala") ? destName : `${destName}, Kerala`;
+            // FIX 1 IMPLEMENTED: Calculating the Spatial Bounding Box parameters
+            const west = gps.lng - 0.15;
+            const east = gps.lng + 0.15;
+            const north = gps.lat + 0.15;
+            const south = gps.lat - 0.15;
+            const viewboxParams = `&viewbox=${west},${north},${east},${south}&bounded=0`;
+
+            // FIX 1 IMPLEMENTED: Parsing and extracting the local town context from gps.placeName
+            let localContext = "";
+            if (gps.placeName) {
+              const broadSegments = ["india", "kerala"];
+              const segments = gps.placeName.split(",")
+                .map(s => s.trim())
+                .filter(s => s.length > 0 && !broadSegments.includes(s.toLowerCase()));
+              const specificSegments = segments.slice(0, 2);
+              if (specificSegments.length > 0) {
+                localContext = specificSegments.join(", ");
+              }
+            }
+
+            // Construct enriched search query incorporating local town context
+            let searchQuery = "";
+            if (localContext) {
+              searchQuery = `${destName}, ${localContext}`;
+              if (!searchQuery.toLowerCase().includes("kerala")) {
+                searchQuery += ", Kerala";
+              }
+            } else {
+              searchQuery = destName.toLowerCase().includes("kerala") ? destName : `${destName}, Kerala`;
+            }
 
             // Check if destName is primarily non-ASCII (e.g., Malayalam, Hindi, etc.)
             const isNonAscii = /[^\x00-\x7F]/.test(destName);
             if (isNonAscii && query) {
               // Automatically switch to original spoken English query to maximize Nominatim lookup rates
-              searchQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
+              if (localContext) {
+                searchQuery = `${query}, ${localContext}`;
+                if (!searchQuery.toLowerCase().includes("kerala")) {
+                  searchQuery += ", Kerala";
+                }
+              } else {
+                searchQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
+              }
             }
 
             logDiag(`Performing Nominatim geocoding check for: "${searchQuery}"...`, "info");
 
-            let geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1`, {
+            // FIX 1 IMPLEMENTED: Appending the viewboxParams to the primary fetch call
+            let geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1${viewboxParams}`, {
               headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
             });
 
@@ -1350,11 +1388,21 @@
               geoData = await geoResponse.json();
             }
 
-            // If the primary lookup yielded no results, fall back to searching with the original English query
-            if ((!geoData || geoData.length === 0) && query && searchQuery !== `${query}, Kerala`) {
-              const fallbackQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
+            // If the primary lookup yielded no results, fall back to searching with the original English query (also enriched)
+            let fallbackQuery = "";
+            if (localContext) {
+              fallbackQuery = `${query}, ${localContext}`;
+              if (!fallbackQuery.toLowerCase().includes("kerala")) {
+                fallbackQuery += ", Kerala";
+              }
+            } else {
+              fallbackQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
+            }
+
+            // FIX 1 IMPLEMENTED: Appending viewboxParams to the fallback fetch call as well
+            if ((!geoData || geoData.length === 0) && query && searchQuery !== fallbackQuery) {
               logDiag(`Primary Nominatim check yielded no results. Trying English query fallback: "${fallbackQuery}"...`, "info");
-              geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fallbackQuery)}&format=json&limit=1`, {
+              geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fallbackQuery)}&format=json&limit=1${viewboxParams}`, {
                 headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
               });
               if (geoResponse.ok) {
@@ -1901,6 +1949,4 @@
     };
   </script>
 </body>
-</html> 
-
-
+</html>
