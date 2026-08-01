@@ -83,7 +83,7 @@
       align-items: center;
       justify-content: center;
       cursor: pointer;
- transition: background 0.2s;
+      transition: background 0.2s;
     }
 
     .header-btn:active {
@@ -835,14 +835,6 @@
       }
     }
 
-    function openDiagnosticModal() {
-      document.getElementById('diagnosticLogModal').style.display = 'flex';
-    }
-
-    function closeDiagnosticModal() {
-      document.getElementById('diagnosticLogModal').style.display = 'none';
-    }
-
     // FIX: Route copy action through Native Android ClipboardManager to eliminate Write Permission Denied error
     function copyDiagnosticLogs() {
       const text = document.getElementById('diagTerminalText').textContent;
@@ -857,6 +849,14 @@
           logDiag("Clipboard copy failed: " + e.message, "error");
         }
       }
+    }
+
+    function openDiagnosticModal() {
+      document.getElementById('diagnosticLogModal').style.display = 'flex';
+    }
+
+    function closeDiagnosticModal() {
+      document.getElementById('diagnosticLogModal').style.display = 'none';
     }
 
     // System State Variables
@@ -1237,10 +1237,7 @@
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
         logDiag(`Background Maps search complete: "${textResponse.substring(0, 100)}..."`, "info");
 
-        let destName = "";
-        let lat = null;
-        let lng = null;
-        let extractionMethod = "";
+        let markersArray = [];
 
         // OPTION A: Extract coordinates directly from structured groundingMetadata
         const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
@@ -1248,9 +1245,12 @@
           for (const chunk of groundingMetadata.groundingChunks) {
             // Target the official native "maps" chunk structure
             if (chunk.maps) {
-              destName = chunk.maps.title || query;
-              
-              const url = chunk.maps.uri;
+              let destName = chunk.maps.title || query;
+              let url = chunk.maps.uri;
+              let lat = null;
+              let lng = null;
+              let extractionMethod = "";
+
               if (url) {
                 // Try CID redirect extraction via Android native bridge
                 const cidMatch = url.match(/cid=(\d+)/);
@@ -1286,83 +1286,84 @@
                   }
                 }
               }
-              
+
+              // OPTION C FALLBACK: Nominatim Geocoding Verification (OpenStreetMap Ground Truth with multilingual support) per result
+              if ((lat === null || lng === null) && destName) {
+                try {
+                  // Try geocoding the resolved destName first
+                  let searchQuery = destName.toLowerCase().includes("kerala") ? destName : `${destName}, Kerala`;
+                  
+                  // Check if destName is primarily non-ASCII (e.g., Malayalam, Hindi, etc.)
+                  const isNonAscii = /[^\x00-\x7F]/.test(destName);
+                  if (isNonAscii && query) {
+                    // Automatically switch to original spoken English query to maximize Nominatim lookup rates
+                    searchQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
+                  }
+
+                  logDiag(`Performing Nominatim geocoding check for: "${searchQuery}"...`, "info");
+                  
+                  let geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1`, {
+                    headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
+                  });
+                  
+                  let geoData = [];
+                  if (geoResponse.ok) {
+                    geoData = await geoResponse.json();
+                  }
+
+                  // If the primary lookup yielded no results, fall back to searching with the original English query
+                  if ((!geoData || geoData.length === 0) && query && searchQuery !== `${query}, Kerala`) {
+                    const fallbackQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
+                    logDiag(`Primary Nominatim check yielded no results. Trying English query fallback: "${fallbackQuery}"...`, "info");
+                    geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fallbackQuery)}&format=json&limit=1`, {
+                      headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
+                    });
+                    if (geoResponse.ok) {
+                      geoData = await geoResponse.json();
+                    }
+                  }
+
+                  if (geoData && geoData.length > 0) {
+                    lat = parseFloat(geoData[0].lat);
+                    lng = parseFloat(geoData[0].lon);
+                    extractionMethod = "Nominatim geocoding database";
+                    logDiag(`Nominatim successfully verified location at (${lat}, ${lng})`, "info");
+                  }
+                } catch(geoError) {
+                  logDiag("Nominatim geocoding check failed: " + geoError.message, "warning");
+                }
+              }
+
+              // Fallback to text parsing regex if both meta and Nominatim failed for this specific place
+              if (lat === null || lng === null) {
+                const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
+                if (plotMatch) {
+                  destName = plotMatch[1].trim();
+                  lat = parseFloat(plotMatch[2]);
+                  lng = parseFloat(plotMatch[3]);
+                  extractionMethod = "text regex fallback";
+                }
+              }
+
               if (lat !== null && lng !== null) {
-                break;
+                markersArray.push({
+                  name: destName,
+                  lat: lat,
+                  lng: lng,
+                  info: chunk.maps.text || "No additional information available."
+                });
+                logDiag(`Successfully resolved coordinates for "${destName}" via ${extractionMethod || 'unknown method'} at (${lat}, ${lng})`, "info");
               }
             }
           }
         }
 
-        // FALLBACK: If structured metadata extraction yields nothing, use the refined text parser (Option B)
-        if (lat === null || lng === null) {
-          const plotMatch = textResponse.match(/\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/i);
-          if (plotMatch) {
-            destName = plotMatch[1].trim();
-            lat = parseFloat(plotMatch[2]);
-            lng = parseFloat(plotMatch[3]);
-            extractionMethod = "text regex fallback";
-          }
-        }
-
-        // OPTION C: Nominatim Geocoding Verification (OpenStreetMap Ground Truth with multilingual support)
-        if (destName) {
-          try {
-            // Try geocoding the resolved destName first
-            let searchQuery = destName.toLowerCase().includes("kerala") ? destName : `${destName}, Kerala`;
-            
-            // Check if destName is primarily non-ASCII (e.g., Malayalam, Hindi, etc.)
-            const isNonAscii = /[^\x00-\x7F]/.test(destName);
-            if (isNonAscii && query) {
-              // Automatically switch to original spoken English query to maximize Nominatim lookup rates
-              searchQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
-            }
-
-            logDiag(`Performing Nominatim geocoding check for: "${searchQuery}"...`, "info");
-            
-            let geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1`, {
-              headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
-            });
-            
-            let geoData = [];
-            if (geoResponse.ok) {
-              geoData = await geoResponse.json();
-            }
-
-            // If the primary lookup yielded no results, fall back to searching with the original English query
-            if ((!geoData || geoData.length === 0) && query && searchQuery !== `${query}, Kerala`) {
-              const fallbackQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
-              logDiag(`Primary Nominatim check yielded no results. Trying English query fallback: "${fallbackQuery}"...`, "info");
-              geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fallbackQuery)}&format=json&limit=1`, {
-                headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
-              });
-              if (geoResponse.ok) {
-                geoData = await geoResponse.json();
-              }
-            }
-
-            if (geoData && geoData.length > 0) {
-              lat = parseFloat(geoData[0].lat);
-              lng = parseFloat(geoData[0].lon);
-              extractionMethod = "Nominatim geocoding database";
-              logDiag(`Nominatim successfully verified location at (${lat}, ${lng})`, "info");
-            }
-          } catch(geoError) {
-            logDiag("Nominatim geocoding check failed: " + geoError.message, "warning");
-          }
-        }
-
-        let routeMsg = "No exact coordinates could be parsed.";
-
-        if (lat !== null && lng !== null && window.AndroidInterface) {
-          window.AndroidInterface.plotRouteToDestination(destName, lat, lng);
-          routeMsg = `The route to ${destName} (${lat}, ${lng}) has been plotted with 10-meter markers on the OSMDroid map.`;
-          logDiag(`Parsed coordinates via ${extractionMethod}: ${destName} at (${lat}, ${lng}). Drawing OSMDroid route...`, "info");
-
-          // Automatically reveal simulation dashboard card and center-dock toy car avatar
-          showSimulationControls();
+        // Plot markers on the native map
+        if (markersArray.length > 0 && window.AndroidInterface && window.AndroidInterface.plotMultipleMarkers) {
+          window.AndroidInterface.plotMultipleMarkers(JSON.stringify(markersArray));
+          logDiag(`Sent ${markersArray.length} resolved location(s) to Android to plot.`, "info");
         } else {
-          logDiag("Failed to extract coordinates from either structured metadata, Nominatim, or text fallback.", "error");
+          logDiag("Failed to extract any coordinates from structured metadata, Nominatim, or text fallback.", "error");
         }
 
         // Return resolved location payload back to Gemini Live WebSocket session
@@ -1374,9 +1375,9 @@
                   id: callId,
                   response: {
                     output: {
-                      success: (lat !== null && lng !== null),
+                      success: (markersArray.length > 0),
                       details: textResponse,
-                      mapRoutingStatus: routeMsg
+                      mapRoutingStatus: markersArray.length > 0 ? `Successfully parsed ${markersArray.length} markers and sent to plot.` : "No exact coordinates could be parsed."
                     }
                   }
                 }
@@ -1411,6 +1412,53 @@
         }
       }
     }
+
+    /**
+     * NATIVE ANDROID CALLBACK: Triggered natively when user single-taps anywhere on the OSMDroid background map.
+     * Performs background reverse-geocoding, draws an temporary overlay, and streams a Malayalam announcement to Gemini Live.
+     */
+    window.onMapTapped = async function(lat, lng) {
+      logDiag(`Android GestureDetector: Map single-tap registered at coordinates: (${lat}, ${lng}). Geocoding address...`, "system");
+
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
+          headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const placeName = data.display_name;
+          
+          logDiag(`Identified tapped location: "${placeName}"`, "info");
+          
+          // Plot temporary pin and center camera natively
+          if (window.AndroidInterface && window.AndroidInterface.plotRouteToDestination) {
+            window.AndroidInterface.plotRouteToDestination(data.name || "Tapped Location", lat, lng);
+          }
+
+          // If active Gemini Live WebSocket connection is open, inject a silent, high-priority spoken alert turn
+          if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+            const tapAnnouncement = {
+              clientContent: {
+                turns: [
+                  {
+                    role: "user",
+                    parts: [
+                      { text: `[SYSTEM_TAP_NOTIFICATION] The user has just tapped on this physical location on their map: "${placeName}". Speak a brief, 1-sentence friendly announcement in Malayalam telling them the name of the place they just tapped on. Do not include any long chatty introductions or prefaces.` }
+                    ]
+                  }
+                ],
+                turnComplete: true
+              }
+            };
+            liveWs.send(JSON.stringify(tapAnnouncement));
+            logDiag(`Injected spoken location announcement for "${placeName}" to Gemini Live session.`, "info");
+          }
+        }
+      } catch (error) {
+        logDiag("Failed to reverse-geocode tapped location: " + error.message, "error");
+      }
+    };
 
     /* --- REAL-TIME 16kHz PCM MICROPHONE CAPTURE --- */
     async function initMicrophoneCaptureLive() {
