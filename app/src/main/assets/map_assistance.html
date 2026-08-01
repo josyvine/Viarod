@@ -836,6 +836,7 @@
     }
 
     // FIX: Route copy action through Native Android ClipboardManager to eliminate Write Permission Denied error
+    // FIX: Route copy action through Native Android ClipboardManager to eliminate Write Permission Denied error
     function copyDiagnosticLogs() {
       const text = document.getElementById('diagTerminalText').textContent;
       if (window.AndroidInterface && window.AndroidInterface.copyToClipboard) {
@@ -1900,4 +1901,6 @@
     };
   </script>
 </body>
-</html>
+</html> 
+
+
