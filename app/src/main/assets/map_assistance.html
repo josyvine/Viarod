@@ -713,6 +713,30 @@
       </label>
     </div>
 
+    <!-- Dual Search Engine Selection Dropdown -->
+    <div class="form-group">
+      <label for="searchModeSelect">Search Engine Mode</label>
+      <select id="searchModeSelect">
+        <option value="google" selected>Google Maps Grounding</option>
+        <option value="overpass">Overpass API (OpenStreetMap)</option>
+      </select>
+    </div>
+
+    <!-- Custom Search Radius Dropdown (100m to 1000km) -->
+    <div class="form-group">
+      <label for="searchRadiusSelect">Search Radius</label>
+      <select id="searchRadiusSelect">
+        <option value="100">100 meters</option>
+        <option value="500">500 meters</option>
+        <option value="1000" selected>1 kilometer</option>
+        <option value="5000">5 kilometers</option>
+        <option value="10000">10 kilometers</option>
+        <option value="50000">50 kilometers</option>
+        <option value="100000">100 kilometers</option>
+        <option value="1000000">1000 kilometers</option>
+      </select>
+    </div>
+
     <button class="save-btn" onclick="openDiagnosticModal()">View Terminal Diagnostic Log</button>
     <button class="save-btn" onclick="saveSettingsAndClose()">Save & Apply Configurations</button>
   </div>
@@ -836,7 +860,6 @@
     }
 
     // FIX: Route copy action through Native Android ClipboardManager to eliminate Write Permission Denied error
-    // FIX: Route copy action through Native Android ClipboardManager to eliminate Write Permission Denied error
     function copyDiagnosticLogs() {
       const text = document.getElementById('diagTerminalText').textContent;
       if (window.AndroidInterface && window.AndroidInterface.copyToClipboard) {
@@ -888,6 +911,24 @@
     let engineFilter = null, engineGain = null;
     let soundEnabled = false;
 
+    // Standard OpenStreetMap Tag Dictionary mapping common categories to tag elements
+    const OSM_TAG_DICTIONARY = {
+      "restaurant": "node[\"amenity\"=\"restaurant\"];way[\"amenity\"=\"restaurant\"];",
+      "food": "node[\"amenity\"~\"restaurant|fast_food|cafe|food_court\"];way[\"amenity\"~\"restaurant|fast_food|cafe|food_court\"];",
+      "cafe": "node[\"amenity\"=\"cafe\"];way[\"amenity\"=\"cafe\"];",
+      "hospital": "node[\"amenity\"~\"hospital|clinic\"];way[\"amenity\"~\"hospital|clinic\"];",
+      "clinic": "node[\"amenity\"=\"clinic\"];way[\"amenity\"=\"clinic\"];",
+      "bank": "node[\"amenity\"=\"bank\"];way[\"amenity\"=\"bank\"];",
+      "atm": "node[\"amenity\"=\"atm\"];",
+      "fuel": "node[\"amenity\"=\"fuel\"];way[\"amenity\"=\"fuel\"];",
+      "gas": "node[\"amenity\"=\"fuel\"];way[\"amenity\"=\"fuel\"];",
+      "bakery": "node[\"shop\"=\"bakery\"];way[\"shop\"=\"bakery\"];",
+      "shop": "node[\"shop\"];way[\"shop\"];",
+      "landmark": "node[\"tourism\"=\"attraction\"];way[\"tourism\"=\"attraction\"];",
+      "attraction": "node[\"tourism\"=\"attraction\"];way[\"tourism\"=\"attraction\"];",
+      "pharmacy": "node[\"amenity\"=\"pharmacy\"];way[\"amenity\"=\"pharmacy\"];"
+    };
+
     // Load Settings on Start
     window.addEventListener('DOMContentLoaded', () => {
       logDiag("Map Assistance HTML Engine initialized.", "info");
@@ -904,6 +945,15 @@
           document.getElementById('geminiModelSelect').value = window.AndroidInterface.getGeminiModel() || 'gemini-3.1-flash-live-preview';
           document.getElementById('geminiVoiceSelect').value = window.AndroidInterface.getGeminiVoice() || 'Puck';
           document.getElementById('geminiMapsGroundingToggle').checked = window.AndroidInterface.getMapGroundingEnabled();
+          
+          // Defensively load Search Mode and Search Radius from Android bridge if exposed
+          if (window.AndroidInterface.getSearchMode) {
+            document.getElementById('searchModeSelect').value = window.AndroidInterface.getSearchMode() || 'google';
+          }
+          if (window.AndroidInterface.getSearchRadius) {
+            document.getElementById('searchRadiusSelect').value = window.AndroidInterface.getSearchRadius() || '1000';
+          }
+          
           logDiag("Settings loaded from native AndroidInterface.", "info");
         } catch(e) {
           logDiag("Error loading settings from bridge: " + e.message, "error");
@@ -917,12 +967,27 @@
       const model = document.getElementById('geminiModelSelect').value;
       const voice = document.getElementById('geminiVoiceSelect').value;
       const mapsGround = document.getElementById('geminiMapsGroundingToggle').checked;
+      const searchMode = document.getElementById('searchModeSelect').value;
+      const searchRadius = document.getElementById('searchRadiusSelect').value;
 
       if (window.AndroidInterface) {
         window.AndroidInterface.saveGeminiApiKey(apiKey);
         window.AndroidInterface.saveGeminiModel(model);
         window.AndroidInterface.saveGeminiVoice(voice);
         window.AndroidInterface.saveMapGroundingEnabled(mapsGround);
+        
+        // Defensively save Search Mode and Search Radius inside native SharedPreferences if exposed
+        try {
+          if (window.AndroidInterface.saveSearchMode) {
+            window.AndroidInterface.saveSearchMode(searchMode);
+          }
+          if (window.AndroidInterface.saveSearchRadius) {
+            window.AndroidInterface.saveSearchRadius(parseInt(searchRadius));
+          }
+        } catch (bridgeErr) {
+          logDiag("Search Mode/Radius native bridge save not yet fully exposed: " + bridgeErr.message, "warning");
+        }
+        
         window.AndroidInterface.showToast("Map Assistance settings saved!");
         logDiag("Settings saved to native SharedPreferences.", "info");
       }
@@ -1202,8 +1267,8 @@
 
     /**
      * DUAL-MODEL RELAY EXECUTOR:
-     * Calls standard gemini-3.5-flash-lite (high quota REST model) with native googleMaps grounding.
-     * Obtains coordinates via a structured-metadata first approach, falling back to a prompt-controlled text parser.
+     * Calls standard gemini-3.5-flash-lite (high quota REST model) with native googleMaps grounding, 
+     * or bypasses standard grounding in favor of direct Overpass API spatial query execution based on selected setting.
      */
     async function executeBackgroundMapsQuery(query, callId) {
       let apiKey = document.getElementById('geminiApiKeyInput').value.trim();
@@ -1218,338 +1283,410 @@
         } catch(e) {}
       }
 
-      // Hardcode background to use gemini-3.5-flash-lite for maximum 500 RPD quota
-      const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
+      const activeSearchMode = document.getElementById('searchModeSelect').value;
+      const activeSearchRadius = parseInt(document.getElementById('searchRadiusSelect').value) || 1000;
+      let markersArray = [];
 
-      // OPTION B / UPDATE 1: Rewritten background prompt to strictly support plurality and retrieve up to 5 nearby options
-      const promptText = `Find all nearby places matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
-                         `Provide a list of up to 5 verified results. Use the verified place details, place_id, and CID returned by the googleMaps tool. ` +
-                         `Provide the exact name, rating, address, and information. ` +
-                         `Do not invent or guess latitude and longitude coordinates. Rely on the googleMaps metadata tools to provide place IDs. ` +
-                         `For EACH verified candidate, append a separate parseable tag at the end of your response: [PLOT: Name | Lat, Lng]. There must be a distinct [PLOT: ...] tag for every single place listed.`;
+      if (activeSearchMode === 'overpass') {
+        // --- PATH B: DIRECT OVERPASS API SPATIAL INTRUSION ---
+        const normalizedQuery = query.toLowerCase().trim();
+        let osmQueryBody = "";
+        let isGenericCategory = false;
+        let matchedCategoryKey = "";
 
-      // CONFIG SYNC: Use the official googleMaps tool with latLng retrieval context
-      const requestPayload = {
-        contents: [
-          {
-            parts: [
-              { text: promptText }
-            ]
+        // Check if query contains any of the known categories
+        for (const key in OSM_TAG_DICTIONARY) {
+          if (normalizedQuery.includes(key)) {
+            isGenericCategory = true;
+            matchedCategoryKey = key;
+            break;
           }
-        ],
-        tools: [
-          { googleMaps: {} } // Correct native camelCase tool name
-        ],
-        toolConfig: {
-          retrievalConfig: {
-            latLng: {
-              latitude: gps.lat,
-              longitude: gps.lng
+        }
+
+        // Apply progressive limitations to output limits based on scale to prevent timeouts
+        let outputLimit = 50;
+        if (activeSearchRadius > 100000) {
+          outputLimit = 15; // Tight safety cap on 1000km queries
+        } else if (activeSearchRadius > 10000) {
+          outputLimit = 30; // Medium cap
+        }
+
+        const timeoutLimit = activeSearchRadius >= 100000 ? 25 : 15;
+        const qlHeader = `[out:json][timeout:${timeoutLimit}];`;
+
+        if (isGenericCategory) {
+          const basePattern = OSM_TAG_DICTIONARY[matchedCategoryKey];
+          // Inject coordinates and radius parameters dynamically into the tag pattern
+          let queryWithLocation = basePattern.replace(/node\[/g, `node(around:${activeSearchRadius},${gps.lat},${gps.lng})[`)
+                                             .replace(/way\[/g, `way(around:${activeSearchRadius},${gps.lat},${gps.lng})[`);
+          osmQueryBody = `${qlHeader}(${queryWithLocation});out center ${outputLimit};`;
+        } else {
+          // If no categories match, run regex name substring search
+          const cleanNameSearch = sanitizeQueryName(query);
+          osmQueryBody = `${qlHeader}(` +
+                         `node(around:${activeSearchRadius},${gps.lat},${gps.lng})["name"~"${cleanNameSearch}",i];` +
+                         `way(around:${activeSearchRadius},${gps.lat},${gps.lng})["name"~"${cleanNameSearch}",i];` +
+                         `);out center ${outputLimit};`;
+        }
+
+        logDiag(`Dispatching Overpass API spatial query (Radius: ${activeSearchRadius}m, Limit: ${outputLimit})...`, "info");
+
+        try {
+          const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(osmQueryBody)}`;
+          const opResponse = await fetch(overpassUrl);
+          
+          if (!opResponse.ok) {
+            throw new Error(`Overpass API server returned error status ${opResponse.status}`);
+          }
+
+          const opData = await opResponse.json();
+          const elements = opData.elements || [];
+          logDiag(`Overpass API query complete. Found ${elements.length} match(es).`, "info");
+
+          for (const el of elements) {
+            let name = el.tags?.name || query;
+            let elLat = el.lat;
+            let elLng = el.lon;
+
+            // Resolve geometry center dynamically if element is closed way/relation shape
+            if (el.type === "way" || el.type === "relation") {
+              if (el.center) {
+                elLat = el.center.lat;
+                elLng = el.center.lon;
+              }
+            }
+
+            if (elLat !== undefined && elLng !== undefined && elLat !== null && elLng !== null) {
+              let infoSnippet = el.tags?.amenity || el.tags?.shop || el.tags?.tourism || "Point of Interest";
+              if (el.tags?.opening_hours) infoSnippet += ` | Hours: ${el.tags.opening_hours}`;
+              if (el.tags?.phone) infoSnippet += ` | Phone: ${el.tags.phone}`;
+
+              markersArray.push({
+                name: name,
+                lat: elLat,
+                lng: elLng,
+                info: infoSnippet
+              });
             }
           }
-        }
-      };
 
-      logDiag(`Dispatching background Maps Grounding request for query: "${query}" near ${gps.placeName}...`, "info");
-
-      try {
-        const response = await fetch(targetUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestPayload)
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP Error ${response.status}`);
+        } catch (opErr) {
+          logDiag("Overpass API query failed: " + opErr.message, "error");
         }
 
-        const data = await response.json();
-        const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
+      } else {
+        // --- PATH A: STANDARD NATIVE GOOGLE MAPS GROUNDING PATH ---
+        const targetUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`;
 
-        // UPDATE 4: Log truncation fully removed so that the raw API response logs unclipped
-        logDiag("Background Maps search complete: " + textResponse, "info");
+        // OPTION B / UPDATE 1: Rewritten background prompt to strictly support plurality and retrieve up to 5 nearby options
+        const promptText = `Find all nearby places matching '${query}' near coordinates ${gps.lat}, ${gps.lng} (Location: ${gps.placeName || 'Mala'}). ` +
+                           `Provide a list of up to 5 verified results. Use the verified place details, place_id, and CID returned by the googleMaps tool. ` +
+                           `Provide the exact name, rating, address, and information. ` +
+                           `Do not invent or guess latitude and longitude coordinates. Rely on the googleMaps metadata tools to provide place IDs. ` +
+                           `For EACH verified candidate, append a separate parseable tag at the end of your response: [PLOT: Name | Lat, Lng]. There must be a distinct [PLOT: ...] tag for every single place listed.`;
 
-        let markersArray = [];
-        let destName = "";
-        let lat = null;
-        let lng = null;
-        let extractionMethod = "";
+        // CONFIG SYNC: Use the official googleMaps tool with latLng retrieval context
+        const requestPayload = {
+          contents: [
+            {
+              parts: [
+                { text: promptText }
+              ]
+            }
+          ],
+          tools: [
+            { googleMaps: {} } // Correct native camelCase tool name
+          ],
+          toolConfig: {
+            retrievalConfig: {
+              latLng: {
+                latitude: gps.lat,
+                longitude: gps.lng
+              }
+            }
+          }
+        };
 
-        // OPTION A: Extract coordinates directly from structured groundingMetadata
-        const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
-        if (groundingMetadata && groundingMetadata.groundingChunks) {
-          for (const chunk of groundingMetadata.groundingChunks) {
-            // Target the official native "maps" chunk structure
-            if (chunk.maps) {
-              destName = chunk.maps.title || query;
-              let url = chunk.maps.uri;
+        logDiag(`Dispatching background Maps Grounding request for query: "${query}" near ${gps.placeName}...`, "info");
 
-              if (url) {
-                // Try CID redirect extraction via Android native bridge
-                const cidMatch = url.match(/cid=(\d+)/);
-                if (cidMatch && window.AndroidInterface && window.AndroidInterface.getCoordinatesFromCid) {
-                  try {
-                    let cid = cidMatch[1];
-                    let redirect = window.AndroidInterface.getCoordinatesFromCid(cid);
-                    let pos = redirect.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-                    if (pos) {
-                      lat = parseFloat(pos[1]);
-                      lng = parseFloat(pos[2]);
-                      extractionMethod = "Google CID redirect";
+        try {
+          const response = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestPayload)
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP Error ${response.status}`);
+          }
+
+          const data = await response.json();
+          const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
+
+          // UPDATE 4: Log truncation fully removed so that the raw API response logs unclipped
+          logDiag("Background Maps search complete: " + textResponse, "info");
+
+          let destName = "";
+          let lat = null;
+          let lng = null;
+          let extractionMethod = "";
+
+          // OPTION A: Extract coordinates directly from structured groundingMetadata
+          const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
+          if (groundingMetadata && groundingMetadata.groundingChunks) {
+            for (const chunk of groundingMetadata.groundingChunks) {
+              // Target the official native "maps" chunk structure
+              if (chunk.maps) {
+                destName = chunk.maps.title || query;
+                let url = chunk.maps.uri;
+
+                if (url) {
+                  // Try CID redirect extraction via Android native bridge
+                  const cidMatch = url.match(/cid=(\d+)/);
+                  if (cidMatch && window.AndroidInterface && window.AndroidInterface.getCoordinatesFromCid) {
+                    try {
+                      let cid = cidMatch[1];
+                      let redirect = window.AndroidInterface.getCoordinatesFromCid(cid);
+                      let pos = redirect.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+                      if (pos) {
+                        lat = parseFloat(pos[1]);
+                        lng = parseFloat(pos[2]);
+                        extractionMethod = "Google CID redirect";
+                      }
+                    } catch (bridgeErr) {
+                      logDiag("CID bridge resolution failed: " + bridgeErr.message, "warning");
                     }
-                  } catch (bridgeErr) {
-                    logDiag("CID bridge resolution failed: " + bridgeErr.message, "warning");
                   }
-                }
 
-                // Standard URL parameter fallback if bridge didn't resolve or didn't return matches
-                if (lat === null || lng === null) {
-                  let match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-                  if (match) {
-                    lat = parseFloat(match[1]);
-                    lng = parseFloat(match[2]);
-                    extractionMethod = "native maps chunk URL parameters";
-                  } else {
-                    match = url.match(/[?&](q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                  // Standard URL parameter fallback if bridge didn't resolve or didn't return matches
+                  if (lat === null || lng === null) {
+                    let match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
                     if (match) {
-                      lat = parseFloat(match[2]);
-                      lng = parseFloat(match[3]);
-                      extractionMethod = "native maps chunk URL query parameters";
+                      lat = parseFloat(match[1]);
+                      lng = parseFloat(match[2]);
+                      extractionMethod = "native maps chunk URL parameters";
+                    } else {
+                      match = url.match(/[?&](q|ll)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+                      if (match) {
+                        lat = parseFloat(match[2]);
+                        lng = parseFloat(match[3]);
+                        extractionMethod = "native maps chunk URL query parameters";
+                      }
                     }
                   }
                 }
-              }
 
-              if (lat !== null && lng !== null) {
-                markersArray.push({
-                  name: destName,
-                  lat: lat,
-                  lng: lng,
-                  info: chunk.maps.text || "No additional information available."
-                });
-                logDiag(`Successfully resolved coordinates for "${destName}" via ${extractionMethod || 'unknown method'} at (${lat}, ${lng})`, "info");
+                if (lat !== null && lng !== null) {
+                  markersArray.push({
+                    name: destName,
+                    lat: lat,
+                    lng: lng,
+                    info: chunk.maps.text || "No additional information available."
+                  });
+                  logDiag(`Successfully resolved coordinates for "${destName}" via ${extractionMethod || 'unknown method'} at (${lat}, ${lng})`, "info");
+                }
               }
             }
           }
-        }
 
-        // UPDATE 2: Option B rewritten to iterate globally and append multiple unique candidates with name-only deduplication
-        const plotRegex = /\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/gi;
-        let match;
-        while ((match = plotRegex.exec(textResponse)) !== null) {
-          const matchedName = match[1].trim();
-          const matchedLat = parseFloat(match[2]);
-          const matchedLng = parseFloat(match[3]);
+          // UPDATE 2: Option B rewritten to iterate globally and append multiple unique candidates with name-only deduplication
+          const plotRegex = /\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/gi;
+          let match;
+          while ((match = plotRegex.exec(textResponse)) !== null) {
+            const matchedName = match[1].trim();
+            const matchedLat = parseFloat(match[2]);
+            const matchedLng = parseFloat(match[3]);
 
-          // Deduplication: Deduplicate STRICTLY by name (case-insensitive) to allow multiple distinct places at identical coordinate points (e.g., overlapping nested targets)
-          const isDuplicate = markersArray.some(m => 
-            m.name.toLowerCase() === matchedName.toLowerCase()
-          );
+            // Deduplication: Deduplicate STRICTLY by name (case-insensitive) to allow multiple distinct places at identical coordinate points (e.g., overlapping nested targets)
+            const isDuplicate = markersArray.some(m => 
+              m.name.toLowerCase() === matchedName.toLowerCase()
+            );
 
-          if (!isDuplicate) {
-            markersArray.push({
-              name: matchedName,
-              lat: matchedLat,
-              lng: matchedLng,
-              info: "Parsed via Option B global text regex"
-            });
-            logDiag(`Option B regex matched and added unique location: "${matchedName}" at (${matchedLat}, ${matchedLng})`, "info");
+            if (!isDuplicate) {
+              markersArray.push({
+                name: matchedName,
+                lat: matchedLat,
+                lng: matchedLng,
+                info: "Parsed via Option B global text regex"
+              });
+              logDiag(`Option B regex matched and added unique location: "${matchedName}" at (${matchedLat}, ${matchedLng})`, "info");
 
-            // Re-populate singular variables as generic fallback for Option C fallback processing
-            if (lat === null || lng === null) {
-              destName = matchedName;
-              lat = matchedLat;
-              lng = matchedLng;
-              extractionMethod = "text regex fallback";
-            }
-          } else {
-            logDiag(`Option B duplicate skipped (identical name already plotted): "${matchedName}"`, "info");
-          }
-        }
-
-        // OPTION C / UPDATE 3: Completely rewritten Option C fallback geocoding using Spatial Viewbox Biasing & Local Context Parsing
-        if (destName) {
-          try {
-            // 1. Town Context Extraction: Parse specific segments from gps.placeName
-            let localContext = "";
-            if (gps.placeName) {
-              const broadTerms = ["india", "kerala", "state", "country"];
-              const segments = gps.placeName.split(",")
-                .map(s => s.trim())
-                .filter(s => s.length > 0 && !broadTerms.includes(s.toLowerCase()));
-              // Extract first 1 or 2 specific local segments
-              const specificSegments = segments.slice(0, 2);
-              if (specificSegments.length > 0) {
-                localContext = specificSegments.join(", ");
-              }
-            }
-
-            // 2. Calculate geographic bounding box (approx 15-20km radius bias)
-            const west = gps.lng - 0.15;
-            const east = gps.lng + 0.15;
-            const north = gps.lat + 0.15;
-            const south = gps.lat - 0.15;
-            const viewboxParams = `&viewbox=${west},${north},${east},${south}&bounded=0`;
-
-            // Sanitize business name targeting key noisy modifiers
-            const cleanDestName = sanitizeQueryName(destName);
-
-            // 3. Query Enrichment
-            let searchQuery = "";
-            if (localContext) {
-              searchQuery = `${cleanDestName}, ${localContext}`;
-              if (!searchQuery.toLowerCase().includes("kerala")) {
-                searchQuery += ", Kerala";
+              // Re-populate singular variables as generic fallback for Option C fallback processing
+              if (lat === null || lng === null) {
+                destName = matchedName;
+                lat = matchedLat;
+                lng = matchedLng;
+                extractionMethod = "text regex fallback";
               }
             } else {
-              searchQuery = cleanDestName.toLowerCase().includes("kerala") ? cleanDestName : `${cleanDestName}, Kerala`;
+              logDiag(`Option B duplicate skipped (identical name already plotted): "${matchedName}"`, "info");
             }
+          }
 
-            // Check if destName is primarily non-ASCII (e.g., Malayalam, Hindi, etc.)
-            const isNonAscii = /[^\x00-\x7F]/.test(destName);
-            if (isNonAscii && query) {
-              // Automatically switch to original spoken English query to maximize Nominatim lookup rates
-              const cleanQuery = sanitizeQueryName(query);
+          // OPTION C / UPDATE 3: Completely rewritten Option C fallback geocoding using Spatial Viewbox Biasing & Local Context Parsing
+          if (destName) {
+            try {
+              // 1. Town Context Extraction: Parse specific segments from gps.placeName
+              let localContext = "";
+              if (gps.placeName) {
+                const broadTerms = ["india", "kerala", "state", "country"];
+                const segments = gps.placeName.split(",")
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0 && !broadTerms.includes(s.toLowerCase()));
+                // Extract first 1 or 2 specific local segments
+                const specificSegments = segments.slice(0, 2);
+                if (specificSegments.length > 0) {
+                  localContext = specificSegments.join(", ");
+                }
+              }
+
+              // 2. Calculate geographic bounding box (approx 15-20km radius bias)
+              const west = gps.lng - 0.15;
+              const east = gps.lng + 0.15;
+              const north = gps.lat + 0.15;
+              const south = gps.lat - 0.15;
+              const viewboxParams = `&viewbox=${west},${north},${east},${south}&bounded=0`;
+
+              // Sanitize business name targeting key noisy modifiers
+              const cleanDestName = sanitizeQueryName(destName);
+
+              // 3. Query Enrichment
+              let searchQuery = "";
               if (localContext) {
-                searchQuery = `${cleanQuery}, ${localContext}`;
+                searchQuery = `${cleanDestName}, ${localContext}`;
                 if (!searchQuery.toLowerCase().includes("kerala")) {
                   searchQuery += ", Kerala";
                 }
               } else {
-                searchQuery = query.toLowerCase().includes("kerala") ? query : `${cleanQuery}, Kerala`;
+                searchQuery = cleanDestName.toLowerCase().includes("kerala") ? cleanDestName : `${cleanDestName}, Kerala`;
               }
-            }
 
-            logDiag(`Performing Nominatim geocoding check for: "${searchQuery}"...`, "info");
-
-            // 4. Append viewboxParams to primary Nominatim fetch
-            let geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1${viewboxParams}`, {
-              headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
-            });
-
-            let geoData = [];
-            if (geoResponse.ok) {
-              geoData = await geoResponse.json();
-            }
-
-            // If primary lookup has no results, fall back to English query (with query sanitization)
-            const cleanQueryFallback = sanitizeQueryName(query);
-            let fallbackQuery = "";
-            if (localContext) {
-              fallbackQuery = `${cleanQueryFallback}, ${localContext}`;
-              if (!fallbackQuery.toLowerCase().includes("kerala")) {
-                fallbackQuery += ", Kerala";
+              // Check if destName is primarily non-ASCII (e.g., Malayalam, Hindi, etc.)
+              const isNonAscii = /[^\x00-\x7F]/.test(destName);
+              if (isNonAscii && query) {
+                // Automatically switch to original spoken English query to maximize Nominatim lookup rates
+                const cleanQuery = sanitizeQueryName(query);
+                if (localContext) {
+                  searchQuery = `${cleanQuery}, ${localContext}`;
+                  if (!searchQuery.toLowerCase().includes("kerala")) {
+                    searchQuery += ", Kerala";
+                  }
+                } else {
+                  searchQuery = query.toLowerCase().includes("kerala") ? query : `${cleanQuery}, Kerala`;
+                }
               }
-            } else {
-              fallbackQuery = query.toLowerCase().includes("kerala") ? query : `${cleanQueryFallback}, Kerala`;
-            }
 
-            // Append viewboxParams to fallback Nominatim fetch as well
-            if ((!geoData || geoData.length === 0) && query && searchQuery !== fallbackQuery) {
-              logDiag(`Primary Nominatim check yielded no results. Trying English query fallback: "${fallbackQuery}"...`, "info");
-              geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fallbackQuery)}&format=json&limit=1${viewboxParams}`, {
+              logDiag(`Performing Nominatim geocoding check for: "${searchQuery}"...`, "info");
+
+              // 4. Append viewboxParams to primary Nominatim fetch
+              let geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1${viewboxParams}`, {
                 headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
               });
+
+              let geoData = [];
               if (geoResponse.ok) {
                 geoData = await geoResponse.json();
               }
-            }
 
-            if (geoData && geoData.length > 0) {
-              const matchedLat = parseFloat(geoData[0].lat);
-              const matchedLng = parseFloat(geoData[0].lon);
-
-              // Deduplicate STRICTLY by name (case-insensitive) to support overlapping or closely clustered candidates
-              const isDuplicate = markersArray.some(m => 
-                m.name.toLowerCase() === (destName || query).toLowerCase()
-              );
-
-              if (!isDuplicate) {
-                lat = matchedLat;
-                lng = matchedLng;
-                extractionMethod = "Nominatim geocoding database";
-                logDiag(`Nominatim successfully verified location at (${lat}, ${lng})`, "info");
-
-                markersArray.push({
-                  name: destName || query,
-                  lat: lat,
-                  lng: lng,
-                  info: "Verified via Nominatim spatial fallback query"
-                });
+              // If primary lookup has no results, fall back to English query (with query sanitization)
+              const cleanQueryFallback = sanitizeQueryName(query);
+              let fallbackQuery = "";
+              if (localContext) {
+                fallbackQuery = `${cleanQueryFallback}, ${localContext}`;
+                if (!fallbackQuery.toLowerCase().includes("kerala")) {
+                  fallbackQuery += ", Kerala";
+                }
               } else {
-                logDiag(`Nominatim verification result is a duplicate name, skipping.`, "info");
+                fallbackQuery = query.toLowerCase().includes("kerala") ? query : `${cleanQueryFallback}, Kerala`;
               }
+
+              // Append viewboxParams to fallback Nominatim fetch as well
+              if ((!geoData || geoData.length === 0) && query && searchQuery !== fallbackQuery) {
+                logDiag(`Primary Nominatim check yielded no results. Trying English query fallback: "${fallbackQuery}"...`, "info");
+                geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fallbackQuery)}&format=json&limit=1${viewboxParams}`, {
+                  headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
+                });
+                if (geoResponse.ok) {
+                  geoData = await geoResponse.json();
+                }
+              }
+
+              if (geoData && geoData.length > 0) {
+                const matchedLat = parseFloat(geoData[0].lat);
+                const matchedLng = parseFloat(geoData[0].lon);
+
+                // Deduplicate STRICTLY by name (case-insensitive) to support overlapping or closely clustered candidates
+                const isDuplicate = markersArray.some(m => 
+                  m.name.toLowerCase() === (destName || query).toLowerCase()
+                );
+
+                if (!isDuplicate) {
+                  lat = matchedLat;
+                  lng = matchedLng;
+                  extractionMethod = "Nominatim geocoding database";
+                  logDiag(`Nominatim successfully verified location at (${lat}, ${lng})`, "info");
+
+                  markersArray.push({
+                    name: destName || query,
+                    lat: lat,
+                    lng: lng,
+                    info: "Verified via Nominatim spatial fallback query"
+                  });
+                } else {
+                  logDiag(`Nominatim verification result is a duplicate name, skipping.`, "info");
+                }
+              }
+            } catch(geoError) {
+              logDiag("Nominatim geocoding check failed: " + geoError.message, "warning");
             }
-          } catch(geoError) {
-            logDiag("Nominatim geocoding check failed: " + geoError.message, "warning");
           }
-        }
 
-        // FIX FOR GLITCH 1: Sync and populate markersArray with resolved Option B/C fallback coordinates if Option A was empty
-        if (markersArray.length === 0 && lat !== null && lng !== null) {
-          markersArray.push({
-            name: destName || query,
-            lat: lat,
-            lng: lng,
-            info: `Resolved via fallback verification (${extractionMethod})`
-          });
-          logDiag(`Successfully resolved fallback coordinates for "${destName || query}" via ${extractionMethod} at (${lat}, ${lng})`, "info");
-        }
+          // FIX FOR GLITCH 1: Sync and populate markersArray with resolved Option B/C fallback coordinates if Option A was empty
+          if (markersArray.length === 0 && lat !== null && lng !== null) {
+            markersArray.push({
+              name: destName || query,
+              lat: lat,
+              lng: lng,
+              info: `Resolved via fallback verification (${extractionMethod})`
+            });
+            logDiag(`Successfully resolved fallback coordinates for "${destName || query}" via ${extractionMethod} at (${lat}, ${lng})`, "info");
+          }
 
-        // Plot markers on the native map
-        if (markersArray.length > 0 && window.AndroidInterface && window.AndroidInterface.plotMultipleMarkers) {
-          window.AndroidInterface.plotMultipleMarkers(JSON.stringify(markersArray));
-          logDiag(`Sent ${markersArray.length} resolved location(s) to Android to plot.`, "info");
-        } else {
-          logDiag("Failed to extract any coordinates from structured metadata, Nominatim, or text fallback.", "error");
+        } catch (groundingErr) {
+          logDiag("Standard Google Grounding path failed: " + groundingErr.message, "error");
         }
+      }
 
-        // Return resolved location payload back to Gemini Live WebSocket session
-        // FIXED: Only pass a very concise comma-separated string of the place names rather than raw background REST markdown content
-        // This prevents the Voice AI model from reading out pages of text summaries at once.
-        if (liveWs && liveWs.readyState === WebSocket.OPEN) {
-          const responseMessage = {
-            toolResponse: {
-              functionResponses: [
-                {
-                  id: callId,
-                  response: {
-                    output: {
-                      success: (markersArray.length > 0),
-                      summary_names: markersArray.map(m => m.name).join(", "),
-                      mapRoutingStatus: markersArray.length > 0 ? `Successfully parsed ${markersArray.length} markers and sent to plot.` : "No exact coordinates could be parsed."
-                    }
+      // Plot markers on the native map (Overpass API or Google Maps grounding outcomes)
+      if (markersArray.length > 0 && window.AndroidInterface && window.AndroidInterface.plotMultipleMarkers) {
+        window.AndroidInterface.plotMultipleMarkers(JSON.stringify(markersArray));
+        logDiag(`Sent ${markersArray.length} resolved location(s) to Android to plot.`, "info");
+      } else {
+        logDiag("Failed to extract any coordinates from structured metadata, Nominatim, Overpass API, or text fallback.", "error");
+      }
+
+      // Return resolved location payload back to Gemini Live WebSocket session
+      // FIXED: Only pass a very concise comma-separated string of the place names rather than raw background REST markdown content
+      // This prevents the Voice AI model from reading out pages of text summaries at once.
+      if (liveWs && liveWs.readyState === WebSocket.OPEN) {
+        const responseMessage = {
+          toolResponse: {
+            functionResponses: [
+              {
+                id: callId,
+                response: {
+                  output: {
+                    success: (markersArray.length > 0),
+                    summary_names: markersArray.length > 0 ? markersArray.map(m => m.name).join(", ") : "None",
+                    mapRoutingStatus: markersArray.length > 0 ? `Successfully parsed ${markersArray.length} markers and sent to plot.` : "No exact coordinates could be parsed."
                   }
                 }
-              ]
-            }
-          };
-          liveWs.send(JSON.stringify(responseMessage));
-          logDiag("Maps grounding response relayed back to active Gemini Live session.", "info");
-        }
-
-      } catch(e) {
-        logDiag("Background Maps Grounding query failed: " + e.message, "error");
-
-        // Return failure message so Live model doesn't hang waiting
-        if (liveWs && liveWs.readyState === WebSocket.OPEN) {
-          const responseMessage = {
-            toolResponse: {
-              functionResponses: [
-                {
-                  id: callId,
-                  response: {
-                    output: {
-                      success: false,
-                      error: e.message
-                    }
-                  }
-                }
-              ]
-            }
-          };
-          liveWs.send(JSON.stringify(responseMessage));
-        }
+              }
+            ]
+          }
+        };
+        liveWs.send(JSON.stringify(responseMessage));
+        logDiag("Maps grounding response relayed back to active Gemini Live session.", "info");
       }
     }
 
@@ -1944,14 +2081,12 @@
     };
 
     // Minimization Handler: Collapses panel into a small bubble placed beside compass
-    // Minimization Handler: Collapses panel into a small bubble placed beside compass
     function minimizeSimulationDashboard() {
       document.getElementById('simDashboard').style.display = 'none';
       document.getElementById('simMinimizedCard').style.display = 'flex';
       logDiag("Minimized simulation control dashboard.", "info");
     }
 
-    // Restoration Handler: Restores the enlarged translucent panel
     // Restoration Handler: Restores the enlarged translucent panel
     function restoreSimulationDashboard() {
       document.getElementById('simMinimizedCard').style.display = 'none';
