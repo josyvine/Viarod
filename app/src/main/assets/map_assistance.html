@@ -1318,7 +1318,7 @@
           }
         }
 
-        // UPDATE 2: Option B rewritten to iterate globally and append multiple unique candidates with deduplication
+        // UPDATE 2: Option B rewritten to iterate globally and append multiple unique candidates with name-only deduplication
         const plotRegex = /\[PLOT:\s*([^|]+)\|\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\]/gi;
         let match;
         while ((match = plotRegex.exec(textResponse)) !== null) {
@@ -1326,10 +1326,9 @@
           const matchedLat = parseFloat(match[2]);
           const matchedLng = parseFloat(match[3]);
 
-          // Deduplication: Deduplicate primarily by name (case-insensitive) or tight coordinate delta (0.00001 degrees) to handle multiple places in close proximity
+          // Deduplication: Deduplicate STRICTLY by name (case-insensitive) to allow multiple distinct places at identical coordinate points (e.g., overlapping nested targets)
           const isDuplicate = markersArray.some(m => 
-            m.name.toLowerCase() === matchedName.toLowerCase() || 
-            (Math.abs(m.lat - matchedLat) < 0.00001 && Math.abs(m.lng - matchedLng) < 0.00001)
+            m.name.toLowerCase() === matchedName.toLowerCase()
           );
 
           if (!isDuplicate) {
@@ -1349,7 +1348,7 @@
               extractionMethod = "text regex fallback";
             }
           } else {
-            logDiag(`Option B coordinate duplicate skipped for parsed candidate: "${matchedName}" at (${matchedLat}, ${matchedLng})`, "info");
+            logDiag(`Option B duplicate skipped (identical name already plotted): "${matchedName}"`, "info");
           }
         }
 
@@ -1440,10 +1439,9 @@
               const matchedLat = parseFloat(geoData[0].lat);
               const matchedLng = parseFloat(geoData[0].lon);
 
-              // Coordinate duplication check (0.00001 degrees) and name-based deduplication
+              // Deduplicate STRICTLY by name (case-insensitive) to support overlapping or closely clustered candidates
               const isDuplicate = markersArray.some(m => 
-                m.name.toLowerCase() === (destName || query).toLowerCase() ||
-                (Math.abs(m.lat - matchedLat) < 0.00001 && Math.abs(m.lng - matchedLng) < 0.00001)
+                m.name.toLowerCase() === (destName || query).toLowerCase()
               );
 
               if (!isDuplicate) {
@@ -1459,7 +1457,7 @@
                   info: "Verified via Nominatim spatial fallback query"
                 });
               } else {
-                logDiag(`Nominatim verification result at (${matchedLat}, ${matchedLng}) is a duplicate, skipping.`, "info");
+                logDiag(`Nominatim verification result is a duplicate name, skipping.`, "info");
               }
             }
           } catch(geoError) {
@@ -1736,6 +1734,7 @@
       logDiag("Revealed Toy Car and Simulation control dashboard.", "info");
     }
 
+    // Hide simulation dashboards on double tap
     function hideSimulationControls() {
       document.getElementById('simDashboard').style.display = 'none';
       document.getElementById('carMapAvatar').style.display = 'none';
