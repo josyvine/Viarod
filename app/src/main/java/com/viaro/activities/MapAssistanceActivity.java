@@ -124,6 +124,10 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
     // Navigation State
     private GeoPoint mTargetDestination;
 
+    // Native Floating Control Buttons
+    private ImageButton mBtnGps;
+    private ImageButton mBtnCompass;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -143,11 +147,11 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         mController.setCenter(defaultPoint);
 
         // 2. Setup Native Floating Map Controls
-        ImageButton btnGps = findViewById(R.id.btn_recenter_gps);
-        ImageButton btnCompass = findViewById(R.id.btn_reset_compass);
+        mBtnGps = findViewById(R.id.btn_recenter_gps);
+        mBtnCompass = findViewById(R.id.btn_reset_compass);
 
-        btnGps.setOnClickListener(v -> recenterOnUserLocation());
-        btnCompass.setOnClickListener(v -> resetCompassOrientation());
+        mBtnGps.setOnClickListener(v -> recenterOnUserLocation());
+        mBtnCompass.setOnClickListener(v -> resetCompassOrientation());
 
         // 3. Attach Map Single-Tap Event Receiver to forward coordinate taps straight to Javascript
         MapEventsReceiver mapTapReceiver = new MapEventsReceiver() {
@@ -170,7 +174,10 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
             }
         };
         MapEventsOverlay mapEventsOverlay = new MapEventsOverlay(mapTapReceiver);
-        mMapView.getOverlays().add(mapEventsOverlay);
+        
+        // Add single-tap event receiver overlay at index 0 (bottom of the overlay stack)
+        // This lets markers and overlays on top consume tap events first
+        mMapView.getOverlays().add(0, mapEventsOverlay);
 
         // 4. Initialize Embedded WebView for map_assistance.html
         mWebView = findViewById(R.id.webview_map_assistance);
@@ -247,8 +254,23 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         mWebView.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                doubleTapDetector.onTouchEvent(event);
-                mMapView.dispatchTouchEvent(event);
+                // 1. Let native floating controls receive touches naturally without map interference
+                if (isTouchOnView(mBtnGps, event) || isTouchOnView(mBtnCompass, event)) {
+                    return false;
+                }
+
+                // 2. Filter map touches: only dispatch touches to MapView in non-UI middle vertical region
+                float y = event.getY();
+                int height = v.getHeight();
+
+                float density = getResources().getDisplayMetrics().density;
+                float topLimit = 85 * density; // top bar height limit
+                float bottomLimit = height - (280 * density); // bottom control area limit
+
+                if (y > topLimit && y < bottomLimit) {
+                    doubleTapDetector.onTouchEvent(event);
+                    mMapView.dispatchTouchEvent(event);
+                }
                 return false;
             }
         });
@@ -259,6 +281,19 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
 
         // Load map_assistance.html over virtual HTTPS origin
         mWebView.loadUrl("https://appassets.androidplatform.net/assets/map_assistance.html");
+    }
+
+    /**
+     * Checks if a raw screen touch event falls inside the bounding rectangle of a native view.
+     */
+    private boolean isTouchOnView(View view, MotionEvent event) {
+        if (view == null || view.getVisibility() != View.VISIBLE) return false;
+        int[] location = new int[2];
+        view.getLocationOnScreen(location);
+        int x = (int) event.getRawX();
+        int y = (int) event.getRawY();
+        return (x >= location[0] && x <= location[0] + view.getWidth() &&
+                y >= location[1] && y <= location[1] + view.getHeight());
     }
 
     private void setupLocationUpdates() {
@@ -563,6 +598,13 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     List<GeoPoint> routePolyline = MapUtils.decodePolyline(geometry);
 
                     drawRoutePolylineAnd10MeterMarkers(routePolyline, destinationName);
+
+                    // Reveal simulation dashboard HUD card natively on route generation success
+                    runOnUiThread(() -> {
+                        if (mWebView != null) {
+                            mWebView.evaluateJavascript("if(window.showSimulationControls){ window.showSimulationControls(); }", null);
+                        }
+                    });
                 } else {
                     Toast.makeText(MapAssistanceActivity.this, "Route not found to destination.", Toast.LENGTH_SHORT).show();
                 }
@@ -682,6 +724,13 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         mSimulatedCarMarker.setVisible(true);
         mSimulatedCarMarker.setPosition(mSimulatedCarPosition);
         mMapView.invalidate();
+
+        // Reveal simulation HUD natively
+        runOnUiThread(() -> {
+            if (mWebView != null) {
+                mWebView.evaluateJavascript("if(window.showSimulationControls){ window.showSimulationControls(); }", null);
+            }
+        });
 
         mSimulationRunnable = new Runnable() {
             @Override
