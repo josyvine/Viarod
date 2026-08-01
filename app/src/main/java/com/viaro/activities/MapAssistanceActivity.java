@@ -179,7 +179,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         // 5. Initialize Hardware Compass Sensors
         mSensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         if (mSensorManager != null) {
-            mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+            mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELERENT);
             mMagnetometer = mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
         }
 
@@ -902,8 +902,8 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                         // Fetch OSRM routing
                         plotRouteToDestination(name, lat, lng);
                         
-                        // Start simulation drive immediately
-                        startDriveSimulation(simulationSpeedKmh);
+                        // Start simulation drive immediately with default speed (20 km/h)
+                        startDriveSimulation(20.0);
                         return true;
                     });
 
@@ -919,7 +919,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     double lng = singleObj.getDouble("lng");
 
                     plotRouteToDestination(name, lat, lng);
-                    startDriveSimulation(simulationSpeedKmh);
+                    startDriveSimulation(20.0);
                 } else if (markersArray.length() > 1) {
                     Toast.makeText(this, "Found " + markersArray.length() + " places. Tap a pin to navigate.", Toast.LENGTH_LONG).show();
                 }
