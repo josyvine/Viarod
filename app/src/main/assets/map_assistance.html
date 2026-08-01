@@ -600,7 +600,7 @@
           <span style="font-size:11px; color:#94a3b8;" id="simDistanceTimeLabel">ETA: -- min | -- km remaining</span>
         </div>
       </div>
-      
+
       <div style="display:flex; align-items:center; gap:8px;">
         <!-- Minimize icon collapsing the board into a bubble beside compass -->
         <span class="material-symbols-outlined" style="cursor:pointer; font-size:22px; color:#94a3b8; padding:4px;" onclick="minimizeSimulationDashboard()" title="Minimize Panel">minimize</span>
@@ -853,10 +853,6 @@
 
     function openDiagnosticModal() {
       document.getElementById('diagnosticLogModal').style.display = 'flex';
-    }
-
-    function closeDiagnosticModal() {
-      document.getElementById('diagnosticLogModal').style.display = 'none';
     }
 
     // System State Variables
@@ -1292,7 +1288,7 @@
                 try {
                   // Try geocoding the resolved destName first
                   let searchQuery = destName.toLowerCase().includes("kerala") ? destName : `${destName}, Kerala`;
-                  
+
                   // Check if destName is primarily non-ASCII (e.g., Malayalam, Hindi, etc.)
                   const isNonAscii = /[^\x00-\x7F]/.test(destName);
                   if (isNonAscii && query) {
@@ -1301,11 +1297,11 @@
                   }
 
                   logDiag(`Performing Nominatim geocoding check for: "${searchQuery}"...`, "info");
-                  
+
                   let geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1`, {
                     headers: { 'User-Agent': 'MapAssistanceLiveAI/1.0' }
                   });
-                  
+
                   let geoData = [];
                   if (geoResponse.ok) {
                     geoData = await geoResponse.json();
@@ -1367,6 +1363,8 @@
         }
 
         // Return resolved location payload back to Gemini Live WebSocket session
+        // FIXED: Only pass a very concise comma-separated string of the place names rather than raw background REST markdown content
+        // This prevents the Voice AI model from reading out pages of text summaries at once.
         if (liveWs && liveWs.readyState === WebSocket.OPEN) {
           const responseMessage = {
             toolResponse: {
@@ -1376,7 +1374,7 @@
                   response: {
                     output: {
                       success: (markersArray.length > 0),
-                      details: textResponse,
+                      summary_names: markersArray.map(m => m.name).join(", "),
                       mapRoutingStatus: markersArray.length > 0 ? `Successfully parsed ${markersArray.length} markers and sent to plot.` : "No exact coordinates could be parsed."
                     }
                   }
@@ -1428,9 +1426,9 @@
         if (response.ok) {
           const data = await response.json();
           const placeName = data.display_name;
-          
+
           logDiag(`Identified tapped location: "${placeName}"`, "info");
-          
+
           // Plot temporary pin and center camera natively
           if (window.AndroidInterface && window.AndroidInterface.plotRouteToDestination) {
             window.AndroidInterface.plotRouteToDestination(data.name || "Tapped Location", lat, lng);
@@ -1788,15 +1786,15 @@
         const etaRemainingSeconds = Math.round(etaSeconds % 60);
 
         const distanceKm = (remainingDistanceMeters / 1000.0).toFixed(2);
-        
+
         let labelText = `ETA: ${etaMinutes}m ${etaRemainingSeconds}s | ${distanceKm} km remaining`;
-        
+
         // Append nearest upcoming stop details dynamically to the dashboard sub-label
         if (nextWaypointName && nextWaypointName !== "None") {
             const nextStopDistanceKm = (nextWaypointDistanceMeters / 1000.0).toFixed(2);
             labelText += ` | Next: ${nextWaypointName} (${nextStopDistanceKm} km)`;
         }
-        
+
         labelEl.innerText = labelText;
       }
     };
@@ -1818,7 +1816,7 @@
     // Geofencing Spoken Alert Callback called natively by Java when entering 15m radius of a milestone
     window.onReachedWaypoint = function(waypointName) {
       logDiag(`GEOFENCE ALERT: Car reached milestone: "${waypointName}"!`, "system");
-      
+
       // Update status label momentarily
       const label = document.getElementById('simStatusLabel');
       if (label) {
