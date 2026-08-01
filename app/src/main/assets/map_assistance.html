@@ -853,7 +853,7 @@
 
     function openDiagnosticModal() {
       document.getElementById('diagnosticLogModal').style.display = 'flex';
-      // Notify Java container to pause map touch forwarding [1.1]
+      // Notify Java container to pause map touch forwarding
       if (window.AndroidInterface && window.AndroidInterface.setModalOpen) {
         window.AndroidInterface.setModalOpen(true);
       }
@@ -861,7 +861,7 @@
 
     function closeDiagnosticModal() {
       document.getElementById('diagnosticLogModal').style.display = 'none';
-      // Notify Java container to resume map touch forwarding [1.1]
+      // Notify Java container to resume map touch forwarding
       if (window.AndroidInterface && window.AndroidInterface.setModalOpen) {
         window.AndroidInterface.setModalOpen(false);
       }
@@ -931,7 +931,7 @@
     function toggleSettingsDrawer() {
       const drawer = document.getElementById('settingsDrawer');
       drawer.style.display = (drawer.style.display === 'flex') ? 'none' : 'flex';
-      
+
       // Notify Java container to pause/resume map touch forwarding dynamically
       if (window.AndroidInterface && window.AndroidInterface.setModalOpen) {
         window.AndroidInterface.setModalOpen(drawer.style.display === 'flex');
@@ -1251,6 +1251,10 @@
         logDiag(`Background Maps search complete: "${textResponse.substring(0, 100)}..."`, "info");
 
         let markersArray = [];
+        let destName = "";
+        let lat = null;
+        let lng = null;
+        let extractionMethod = "";
 
         // OPTION A: Extract coordinates directly from structured groundingMetadata
         const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
@@ -1259,8 +1263,8 @@
             // Target the official native "maps" chunk structure
             if (chunk.maps) {
               destName = chunk.maps.title || query;
-              
-              const url = chunk.maps.uri;
+              let url = chunk.maps.uri;
+
               if (url) {
                 // Try CID redirect extraction via Android native bridge
                 const cidMatch = url.match(/cid=(\d+)/);
@@ -1296,7 +1300,7 @@
                   }
                 }
               }
-              
+
               if (lat !== null && lng !== null) {
                 markersArray.push({
                   name: destName,
