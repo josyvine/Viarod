@@ -911,6 +911,7 @@
       }
     }
 
+    // FIX FOR NATIVE PREFERENCE SAVE - MAP TO JAVA PREFERENCE KEY STRINGS
     function saveSettingsAndClose() {
       const apiKey = document.getElementById('geminiApiKeyInput').value.trim();
       const model = document.getElementById('geminiModelSelect').value;
@@ -1249,7 +1250,7 @@
 
         const data = await response.json();
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "No results found near coordinates.";
-        
+
         // UPDATE 4: Log truncation fully removed so that the raw API response logs unclipped
         logDiag("Background Maps search complete: " + textResponse, "info");
 
@@ -1325,9 +1326,10 @@
           const matchedLat = parseFloat(match[2]);
           const matchedLng = parseFloat(match[3]);
 
-          // Delta duplicate coordinate checking (0.0001 degrees)
+          // Deduplication: Deduplicate primarily by name (case-insensitive) or tight coordinate delta (0.00001 degrees) to handle multiple places in close proximity
           const isDuplicate = markersArray.some(m => 
-            Math.abs(m.lat - matchedLat) < 0.0001 && Math.abs(m.lng - matchedLng) < 0.0001
+            m.name.toLowerCase() === matchedName.toLowerCase() || 
+            (Math.abs(m.lat - matchedLat) < 0.00001 && Math.abs(m.lng - matchedLng) < 0.00001)
           );
 
           if (!isDuplicate) {
@@ -1338,7 +1340,7 @@
               info: "Parsed via Option B global text regex"
             });
             logDiag(`Option B regex matched and added unique location: "${matchedName}" at (${matchedLat}, ${matchedLng})`, "info");
-            
+
             // Re-populate singular variables as generic fallback for Option C fallback processing
             if (lat === null || lng === null) {
               destName = matchedName;
@@ -1438,9 +1440,10 @@
               const matchedLat = parseFloat(geoData[0].lat);
               const matchedLng = parseFloat(geoData[0].lon);
 
-              // Coordinate duplication check (0.0001 degrees)
+              // Coordinate duplication check (0.00001 degrees) and name-based deduplication
               const isDuplicate = markersArray.some(m => 
-                Math.abs(m.lat - matchedLat) < 0.0001 && Math.abs(m.lng - matchedLng) < 0.0001
+                m.name.toLowerCase() === (destName || query).toLowerCase() ||
+                (Math.abs(m.lat - matchedLat) < 0.00001 && Math.abs(m.lng - matchedLng) < 0.00001)
               );
 
               if (!isDuplicate) {
@@ -1929,6 +1932,7 @@
       logDiag("Minimized simulation control dashboard.", "info");
     }
 
+    // Restoration Handler: Restores the enlarged translucent panel
     // Restoration Handler: Restores the enlarged translucent panel
     function restoreSimulationDashboard() {
       document.getElementById('simMinimizedCard').style.display = 'none';
