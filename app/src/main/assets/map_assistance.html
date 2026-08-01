@@ -1623,6 +1623,34 @@
       return bytes.buffer;
     }
 
+    function arrayBufferToBase64(buffer) {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return window.btoa(binary);
+    }
+
+    /* --- TOY CAR SIMULATION GRAPHICS & SOUND SYNTH LOGIC --- */
+
+    function showSimulationControls() {
+      document.getElementById('simDashboard').style.display = 'flex';
+      document.getElementById('carMapAvatar').style.display = 'block';
+      logDiag("Revealed Toy Car and Simulation control dashboard.", "info");
+    }
+
+    function hideSimulationControls() {
+      document.getElementById('simDashboard').style.display = 'none';
+      document.getElementById('carMapAvatar').style.display = 'none';
+      logDiag("Hidden Toy Car and Simulation controls.", "info");
+
+      // Stop sound if active
+      if (soundEnabled) {
+        toggleEngineSound();
+      }
+    }
+
     // Dynamic car color modification
     function setCarColor(primary, dark, highlight) {
       document.documentElement.style.setProperty('--car-color-primary', primary);
