@@ -1186,6 +1186,21 @@
     }
 
     /**
+     * Helper utility to clean business name strings before querying Nominatim.
+     * Strips verbose, non-essential, or descriptive tags to prevent lookups from returning zero results.
+     */
+    function sanitizeQueryName(name) {
+      if (!name) return "";
+      // Strip common verbose non-indexed descriptors (case-insensitive)
+      let clean = name.replace(/\b(memorial|charitable\s+trust|charitable|trust|paliative\s+and\s+medical\s+clinic|paliative|medical\s+clinic|out\s+patient\s+department|opd|family\s+restaurant|biriyani\s+house|bakes\s+&\s+cafe|ltd|limited|private|pvt)\b/gi, "");
+      // Replace complex characters/formatting with empty spaces
+      clean = clean.replace(/[-–—(),.]/g, " ");
+      // Condense whitespace and trim ends
+      clean = clean.replace(/\s+/g, " ").trim();
+      return clean || name;
+    }
+
+    /**
      * DUAL-MODEL RELAY EXECUTOR:
      * Calls standard gemini-3.5-flash-lite (high quota REST model) with native googleMaps grounding.
      * Obtains coordinates via a structured-metadata first approach, falling back to a prompt-controlled text parser.
@@ -1376,28 +1391,32 @@
             const south = gps.lat - 0.15;
             const viewboxParams = `&viewbox=${west},${north},${east},${south}&bounded=0`;
 
+            // Sanitize business name targeting key noisy modifiers
+            const cleanDestName = sanitizeQueryName(destName);
+
             // 3. Query Enrichment
             let searchQuery = "";
             if (localContext) {
-              searchQuery = `${destName}, ${localContext}`;
+              searchQuery = `${cleanDestName}, ${localContext}`;
               if (!searchQuery.toLowerCase().includes("kerala")) {
                 searchQuery += ", Kerala";
               }
             } else {
-              searchQuery = destName.toLowerCase().includes("kerala") ? destName : `${destName}, Kerala`;
+              searchQuery = cleanDestName.toLowerCase().includes("kerala") ? cleanDestName : `${cleanDestName}, Kerala`;
             }
 
             // Check if destName is primarily non-ASCII (e.g., Malayalam, Hindi, etc.)
             const isNonAscii = /[^\x00-\x7F]/.test(destName);
             if (isNonAscii && query) {
               // Automatically switch to original spoken English query to maximize Nominatim lookup rates
+              const cleanQuery = sanitizeQueryName(query);
               if (localContext) {
-                searchQuery = `${query}, ${localContext}`;
+                searchQuery = `${cleanQuery}, ${localContext}`;
                 if (!searchQuery.toLowerCase().includes("kerala")) {
                   searchQuery += ", Kerala";
                 }
               } else {
-                searchQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
+                searchQuery = query.toLowerCase().includes("kerala") ? query : `${cleanQuery}, Kerala`;
               }
             }
 
@@ -1413,15 +1432,16 @@
               geoData = await geoResponse.json();
             }
 
-            // If primary lookup has no results, fall back to English query
+            // If primary lookup has no results, fall back to English query (with query sanitization)
+            const cleanQueryFallback = sanitizeQueryName(query);
             let fallbackQuery = "";
             if (localContext) {
-              fallbackQuery = `${query}, ${localContext}`;
+              fallbackQuery = `${cleanQueryFallback}, ${localContext}`;
               if (!fallbackQuery.toLowerCase().includes("kerala")) {
                 fallbackQuery += ", Kerala";
               }
             } else {
-              fallbackQuery = query.toLowerCase().includes("kerala") ? query : `${query}, Kerala`;
+              fallbackQuery = query.toLowerCase().includes("kerala") ? query : `${cleanQueryFallback}, Kerala`;
             }
 
             // Append viewboxParams to fallback Nominatim fetch as well
