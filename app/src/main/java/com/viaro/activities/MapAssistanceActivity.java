@@ -795,7 +795,6 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 double lng = currentPt.getLongitude() + fraction * (nextPt.getLongitude() - currentPt.getLongitude());
 
                 mSimulatedCarPosition = new GeoPoint(lat, lng);
-                mSimulatedCarPosition = new GeoPoint(lat, lng);
                 mSimulatedCarMarker.setPosition(mSimulatedCarPosition);
 
                 // Align rotation and rotate the entire OSMDroid map to keep the car driving North
@@ -928,7 +927,8 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
 
     /**
      * JS BRIDGE ENDPOINT: Receives and processes a list of multiple target markers.
-     * Clears old searches and plots interactive blue pins with click listeners.
+     * Detects coordinate collisions and distributes them programmatically in a spiral pattern 
+     * to prevent pins from stacking directly on top of each other.
      */
     public void plotMultipleMarkers(final String jsonMarkers) {
         runOnUiThread(() -> {
@@ -940,6 +940,66 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     mMapView.getOverlays().remove(marker);
                 }
                 mSearchPOIMarkers.clear();
+
+                int len = markersArray.length();
+                double[] originalLats = new double[len];
+                double[] originalLngs = new double[len];
+                double[] dispersedLats = new double[len];
+                double[] dispersedLngs = new double[len];
+                String[] names = new String[len];
+                String[] infos = new String[len];
+
+                // Cache all values and duplicate original arrays for coordinate manipulation
+                for (int i = 0; i < len; i++) {
+                    JSONObject obj = markersArray.getJSONObject(i);
+                    names[i] = obj.getString("name");
+                    originalLats[i] = obj.getDouble("lat");
+                    originalLngs[i] = obj.getDouble("lng");
+                    dispersedLats[i] = originalLats[i];
+                    dispersedLngs[i] = originalLngs[i];
+                    infos[i] = obj.optString("info", "No information available.");
+                }
+
+                // Detect overlaps and apply a golden spiral dispersion pattern
+                boolean[] dispersed = new boolean[len];
+                for (int i = 0; i < len; i++) {
+                    if (dispersed[i]) continue;
+
+                    List<Integer> collisionGroup = new ArrayList<>();
+                    collisionGroup.add(i);
+
+                    for (int j = i + 1; j < len; j++) {
+                        if (dispersed[j]) continue;
+                        double dLat = Math.abs(originalLats[i] - originalLats[j]);
+                        double dLng = Math.abs(originalLngs[i] - originalLngs[j]);
+                        // Collides if distance is within ~0.00002 degrees (approx. 2 meters)
+                        if (dLat < 0.00002 && dLng < 0.00002) {
+                            collisionGroup.add(j);
+                        }
+                    }
+
+                    // Spread fanned-out pins outwards using golden angles
+                    if (collisionGroup.size() > 1) {
+                        for (int k = 0; k < collisionGroup.size(); k++) {
+                            int idx = collisionGroup.get(k);
+                            if (k == 0) {
+                                // Anchor primary search marker to its true original center
+                                dispersedLats[idx] = originalLats[idx];
+                                dispersedLngs[idx] = originalLngs[idx];
+                            } else {
+                                // Apply a golden angle mathematical spiral offset 
+                                double theta = k * 137.5 * (Math.PI / 180.0); // angle in radians
+                                double r = 0.00015 * Math.sqrt(k); // radius in degrees (~15-18 meters)
+                                
+                                dispersedLats[idx] = originalLats[idx] + r * Math.cos(theta);
+                                dispersedLngs[idx] = originalLngs[idx] + r * Math.sin(theta);
+                            }
+                            dispersed[idx] = true;
+                        }
+                    } else {
+                        dispersed[i] = true;
+                    }
+                }
 
                 // Initialize bounds tracking
                 double minLat = Double.MAX_VALUE;
@@ -958,15 +1018,16 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 }
 
                 // 2. Loop through and plot each place candidate
-                for (int i = 0; i < markersArray.length(); i++) {
-                    JSONObject obj = markersArray.getJSONObject(i);
-                    final String name = obj.getString("name");
-                    final double lat = obj.getDouble("lat");
-                    final double lng = obj.getDouble("lng");
-                    final String info = obj.optString("info", "No information available.");
+                for (int i = 0; i < len; i++) {
+                    final String name = names[i];
+                    final double rawLat = originalLats[i];
+                    final double rawLng = originalLngs[i];
+                    final double dispLat = dispersedLats[i];
+                    final double dispLng = dispersedLngs[i];
+                    final String info = infos[i];
 
                     Marker marker = new Marker(mMapView);
-                    marker.setPosition(new GeoPoint(lat, lng));
+                    marker.setPosition(new GeoPoint(dispLat, dispLng));
                     marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
                     marker.setTitle(name);
                     marker.setSnippet(info); // Populate popup info bubble
@@ -974,13 +1035,13 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     // Style using prominent destination custom_marker (red pin)
                     marker.setIcon(getResources().getDrawable(R.drawable.custom_marker, null));
 
-                    // Track bounding limits
-                    minLat = Math.min(minLat, lat);
-                    maxLat = Math.max(maxLat, lat);
-                    minLng = Math.min(minLng, lng);
-                    maxLng = Math.max(maxLng, lng);
+                    // Track bounding limits utilizing dispersed coordinates to keep everything inside frame
+                    minLat = Math.min(minLat, dispLat);
+                    maxLat = Math.max(maxLat, dispLat);
+                    minLng = Math.min(minLng, dispLng);
+                    maxLng = Math.max(maxLng, dispLng);
 
-                    // 3. Register click listener to navigate to this specific marker upon tap
+                    // 3. Register click listener capturing raw coordinates for OSRM path resolution
                     marker.setOnMarkerClickListener((m, mapView) -> {
                         m.showInfoWindow();
                         mMapView.getController().animateTo(m.getPosition());
@@ -988,8 +1049,8 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                         // Clear old polyline/waypoint markers before generating new route
                         clearRouteOverlay();
                         
-                        // Fetch OSRM routing
-                        plotRouteToDestination(name, lat, lng);
+                        // Fetch OSRM routing targeting the true original coordinates instead of fanned coordinate
+                        plotRouteToDestination(name, rawLat, rawLng);
                         
                         // Start simulation drive immediately with default speed (20 km/h)
                         startDriveSimulation(20.0);
@@ -1001,16 +1062,11 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 }
 
                 // 4. If only 1 place is found, automatically start route
-                if (markersArray.length() == 1) {
-                    JSONObject singleObj = markersArray.getJSONObject(0);
-                    String name = singleObj.getString("name");
-                    double lat = singleObj.getDouble("lat");
-                    double lng = singleObj.getDouble("lng");
-
-                    plotRouteToDestination(name, lat, lng);
+                if (len == 1) {
+                    plotRouteToDestination(names[0], originalLats[0], originalLngs[0]);
                     startDriveSimulation(20.0);
-                } else if (markersArray.length() > 1) {
-                    Toast.makeText(this, "Found " + markersArray.length() + " places. Tap a pin to navigate.", Toast.LENGTH_LONG).show();
+                } else if (len > 1) {
+                    Toast.makeText(this, "Found " + len + " places. Tap a pin to navigate.", Toast.LENGTH_LONG).show();
 
                     // Adjust camera viewport bounds so all markers (including user) are cleanly visible on screen
                     if (maxLat > -Double.MAX_VALUE && minLat < Double.MAX_VALUE) {
