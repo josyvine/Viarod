@@ -97,7 +97,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
     private final Handler mSimulationHandler = new Handler(Looper.getMainLooper());
     private Runnable mSimulationRunnable;
 
-    // Proximity geofencing & Visited locks for spoken alerts [1]
+    // Proximity geofencing & Visited locks for spoken alerts
     private final Set<String> mTriggeredWaypointIds = new HashSet<>();
 
     // Hardware GPS & Location Services
@@ -149,7 +149,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         btnGps.setOnClickListener(v -> recenterOnUserLocation());
         btnCompass.setOnClickListener(v -> resetCompassOrientation());
 
-        // 3. Attach Map Single-Tap Event Receiver to forward coordinate taps straight to Javascript [1.2]
+        // 3. Attach Map Single-Tap Event Receiver to forward coordinate taps straight to Javascript
         MapEventsReceiver mapTapReceiver = new MapEventsReceiver() {
             @Override
             public boolean singleTapConfirmedHelper(GeoPoint p) {
@@ -643,7 +643,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
     /* --- REAL-TIME TOY CAR DRIVE SIMULATION ENGINE --- */
 
     /**
-     * JS BRIDGE ENDPOINT: Initiates the live driving simulation loop at the specified speed (5 to 80 km/h) [1].
+     * JS BRIDGE ENDPOINT: Initiates the live driving simulation loop at the specified speed (5 to 80 km/h).
      */
     public void startDriveSimulation(final double speedKmh) {
         if (mActiveRoutePolyline == null) {
@@ -651,14 +651,14 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
             return;
         }
 
-        // Convert speed from km/h to meters per second [1]
-        mSimulationSpeedMs = (speedKmh * 1000.0) / 3600.0; // 5km/h = ~1.39m/s, 80km/h = ~22.2m/s [1]
+        // Convert speed from km/h to meters per second
+        mSimulationSpeedMs = (speedKmh * 1000.0) / 3600.0; // 5km/h = ~1.39m/s, 80km/h = ~22.2m/s
         mCurrentRoutePoints = mActiveRoutePolyline.getActualPoints();
 
         if (mCurrentRoutePoints == null || mCurrentRoutePoints.size() < 2) return;
 
         if (mIsSimulationRunning) {
-            // Simply update speed parameter in real-time [1]
+            // Simply update speed parameter in real-time
             mSimulationSpeedMs = (speedKmh * 1000.0) / 3600.0;
             return;
         }
@@ -691,7 +691,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     return;
                 }
 
-                // Dynamic Zoom-Compensated Velocity Algorithm to make speed feel realistic on zoom out [1]
+                // Dynamic Zoom-Compensated Velocity Algorithm to make speed feel realistic on zoom out
                 double currentZoom = mMapView.getZoomLevelDouble();
                 double zoomDifference = 17.5 - currentZoom;
                 double velocityMultiplier = 1.0;
@@ -699,7 +699,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     velocityMultiplier = Math.pow(1.6, zoomDifference);
                 }
 
-                // Distance the car should travel in 50ms tick (incorporating dynamic multiplier) [1]
+                // Distance the car should travel in 50ms tick (incorporating dynamic multiplier)
                 double stepMeters = mSimulationSpeedMs * 0.05 * velocityMultiplier; 
                 GeoPoint currentPt = mSimulatedCarPosition;
                 GeoPoint nextPt = mCurrentRoutePoints.get(mCurrentRouteIndex + 1);
@@ -723,7 +723,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     segmentDistance = currentPt.distanceToAsDouble(nextPt);
                 }
 
-                // Interpolate exact segment coordinate [1]
+                // Interpolate exact segment coordinate
                 double fraction = stepMeters / segmentDistance;
                 double lat = currentPt.getLatitude() + fraction * (nextPt.getLatitude() - currentPt.getLatitude());
                 double lng = currentPt.getLongitude() + fraction * (nextPt.getLongitude() - currentPt.getLongitude());
@@ -731,19 +731,19 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 mSimulatedCarPosition = new GeoPoint(lat, lng);
                 mSimulatedCarMarker.setPosition(mSimulatedCarPosition);
 
-                // Align rotation and rotate the entire OSMDroid map to keep the car driving North [1]
+                // Align rotation and rotate the entire OSMDroid map to keep the car driving North
                 float segmentBearing = MapUtils.calculateBearing(currentPt, nextPt);
                 mSimulatedCarMarker.setRotation(360.0f - segmentBearing);
                 mMapView.setMapOrientation(-segmentBearing);
                 mController.setCenter(mSimulatedCarPosition);
 
-                // GEOFENCE PROXIMITY spoken alert triggers [1]
+                // GEOFENCE PROXIMITY spoken alert triggers
                 checkAndTriggerWaypointSpokenAlerts(mSimulatedCarPosition);
 
-                // Calculate remaining OSRM route distance [1]
+                // Calculate remaining OSRM route distance
                 double remainingDistance = calculateRemainingRouteDistance();
 
-                // Find nearest upcoming waypoint/bus stop along the remaining waypoints list [1]
+                // Find nearest upcoming waypoint/bus stop along the remaining waypoints list
                 String nextWaypointName = "None";
                 double nextWaypointDistance = 0.0;
                 if (mTenMeterWaypointMarkers != null && !mTenMeterWaypointMarkers.isEmpty()) {
@@ -761,7 +761,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     }
                 }
 
-                // Push dynamic remaining metrics and upcoming stops directly to the glassmorphic HTML panel [1]
+                // Push dynamic remaining metrics and upcoming stops directly to the glassmorphic HTML panel
                 final double finalDistance = remainingDistance;
                 final String finalWaypointName = nextWaypointName;
                 final double finalWaypointDistance = nextWaypointDistance;
@@ -793,17 +793,17 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
     }
 
     /**
-     * Proximity Geofencing Alerts: Checks if the car has entered a 15-meter radius of any stop [1].
+     * Proximity Geofencing Alerts: Checks if the car has entered a 15-meter radius of any stop.
      */
     private void checkAndTriggerWaypointSpokenAlerts(GeoPoint carPos) {
         for (Marker marker : mTenMeterWaypointMarkers) {
             String stopName = marker.getTitle();
             if (stopName != null && !stopName.equals("Your Location") && !stopName.equals("Target Attraction") && !mTriggeredWaypointIds.contains(stopName)) {
                 double distMeters = carPos.distanceToAsDouble(marker.getPosition());
-                if (distMeters < 15.0) { // 15m proximity boundary [1]
+                if (distMeters < 15.0) { // 15m proximity boundary
                     mTriggeredWaypointIds.add(stopName);
                     
-                    // Dispatch spoken event to Gemini Live WebSocket turns [1]
+                    // Dispatch spoken event to Gemini Live WebSocket turns
                     runOnUiThread(() -> mWebView.evaluateJavascript("if(window.onReachedWaypoint){ window.onReachedWaypoint('" + stopName.replace("'", "\\'") + "'); }", null));
                     Log.d(TAG, "GEOFENCE TRIGGERED: Reached milestone: " + stopName + " | Spoken turn injected.");
                 }
@@ -834,7 +834,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
      */
     public void clearRouteOverlay() {
         stopDriveSimulation();
-        mTriggeredWaypointIds.clear(); // Reset geofencing spoken locks [1]
+        mTriggeredWaypointIds.clear(); // Reset geofencing spoken locks
         
         if (mActiveRoutePolyline != null) {
             mMapView.getOverlays().remove(mActiveRoutePolyline);
@@ -849,7 +849,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         }
         mTenMeterWaypointMarkers.clear();
 
-        // Safely clear search results overlays [1.2]
+        // Safely clear search results overlays
         for (Marker marker : mSearchPOIMarkers) {
             mMapView.getOverlays().remove(marker);
         }
@@ -861,7 +861,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
 
     /**
      * JS BRIDGE ENDPOINT: Receives and processes a list of multiple target markers.
-     * Clears old searches and plots interactive blue pins with click listeners. [1.2, 1.3]
+     * Clears old searches and plots interactive blue pins with click listeners.
      */
     public void plotMultipleMarkers(final String jsonMarkers) {
         runOnUiThread(() -> {
@@ -874,7 +874,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 }
                 mSearchPOIMarkers.clear();
 
-                // 2. Loop through and plot each place candidate [1.2, 5.1]
+                // 2. Loop through and plot each place candidate
                 for (int i = 0; i < markersArray.length(); i++) {
                     JSONObject obj = markersArray.getJSONObject(i);
                     final String name = obj.getString("name");
@@ -883,35 +883,35 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     final String info = obj.optString("info", "No information available.");
 
                     Marker marker = new Marker(mMapView);
-                    marker.setPosition(new GeoPoint(lat, lng)); [1.2]
+                    marker.setPosition(new GeoPoint(lat, lng));
                     marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
-                    marker.setTitle(name); [1.2]
-                    marker.setSnippet(info); // Populate popup info bubble [1.4]
+                    marker.setTitle(name);
+                    marker.setSnippet(info); // Populate popup info bubble
                     
                     // Style using standard coordinate icon resource
                     marker.setIcon(getResources().getDrawable(R.drawable.ic_location, null));
 
-                    // 3. Register click listener to navigate to this specific marker upon tap [1.3]
+                    // 3. Register click listener to navigate to this specific marker upon tap
                     marker.setOnMarkerClickListener((m, mapView) -> {
-                        m.showInfoWindow(); [1.4]
+                        m.showInfoWindow();
                         mMapView.getController().animateTo(m.getPosition());
                         
                         // Clear old polyline/waypoint markers before generating new route
                         clearRouteOverlay();
                         
-                        // Fetch OSRM routing [1.1]
+                        // Fetch OSRM routing
                         plotRouteToDestination(name, lat, lng);
                         
-                        // Start simulation drive immediately [1.1]
+                        // Start simulation drive immediately
                         startDriveSimulation(simulationSpeedKmh);
                         return true;
                     });
 
-                    mMapView.getOverlays().add(marker); [1.2]
+                    mMapView.getOverlays().add(marker);
                     mSearchPOIMarkers.add(marker);
                 }
 
-                // 4. If only 1 place is found, automatically start route [1.1]
+                // 4. If only 1 place is found, automatically start route
                 if (markersArray.length() == 1) {
                     JSONObject singleObj = markersArray.getJSONObject(0);
                     String name = singleObj.getString("name");
@@ -924,7 +924,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     Toast.makeText(this, "Found " + markersArray.length() + " places. Tap a pin to navigate.", Toast.LENGTH_LONG).show();
                 }
 
-                mMapView.invalidate(); [1.2]
+                mMapView.invalidate();
 
             } catch (Exception e) {
                 Log.e(TAG, "Error parsing or plotting multiple markers: " + e.getMessage());
