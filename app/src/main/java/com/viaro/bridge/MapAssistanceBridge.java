@@ -19,6 +19,8 @@ import com.viaro.utils.AppConstants;
 
 import org.json.JSONObject;
 
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -152,6 +154,39 @@ public class MapAssistanceBridge {
     }
 
     // --- JS INTERFACE METHODS EXPOSED TO map_assistance.html ---
+
+    /**
+     * JS INTERFACE: CORS-bypassing synchronous HTTP HEAD request targeting 
+     * Google's maps?cid= redirection. Returns the evaluated 'Location' header value.
+     */
+    @JavascriptInterface
+    public String getCoordinatesFromCid(final String cid) {
+        try {
+            URL url = new URL("https://maps.google.com/?cid=" + cid);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(false);
+            conn.setRequestMethod("HEAD");
+
+            String location = conn.getHeaderField("Location");
+            return location == null ? "" : location;
+        } catch (Exception e) {
+            Log.e(TAG, "Error expanding Google Maps CID redirection synchronously: " + e.getMessage());
+            return "";
+        }
+    }
+
+    /**
+     * JS INTERFACE: Receives a parsed JSON array string containing multiple nearby POI targets.
+     * Marshals execution over to MapAssistanceActivity on the main UI thread.
+     */
+    @JavascriptInterface
+    public void plotMultipleMarkers(final String jsonMarkers) {
+        mHandler.post(() -> {
+            if (mActivity != null) {
+                mActivity.plotMultipleMarkers(jsonMarkers);
+            }
+        });
+    }
 
     @JavascriptInterface
     public String getGpsLocation() {
