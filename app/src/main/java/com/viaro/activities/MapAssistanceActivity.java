@@ -56,6 +56,7 @@ import org.json.JSONObject;
 import org.osmdroid.api.IMapController;
 import org.osmdroid.events.MapEventsReceiver;
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
+import org.osmdroid.util.BoundingBox;
 import org.osmdroid.util.GeoPoint;
 import org.osmdroid.views.CustomZoomButtonsController;
 import org.osmdroid.views.MapView;
@@ -940,6 +941,22 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 }
                 mSearchPOIMarkers.clear();
 
+                // Initialize bounds tracking
+                double minLat = Double.MAX_VALUE;
+                double maxLat = -Double.MAX_VALUE;
+                double minLng = Double.MAX_VALUE;
+                double maxLng = -Double.MAX_VALUE;
+
+                // Include user location in bounding calculations if available
+                if (mCurrentLocation != null) {
+                    double uLat = mCurrentLocation.getLatitude();
+                    double uLng = mCurrentLocation.getLongitude();
+                    minLat = Math.min(minLat, uLat);
+                    maxLat = Math.max(maxLat, uLat);
+                    minLng = Math.min(minLng, uLng);
+                    maxLng = Math.max(maxLng, uLng);
+                }
+
                 // 2. Loop through and plot each place candidate
                 for (int i = 0; i < markersArray.length(); i++) {
                     JSONObject obj = markersArray.getJSONObject(i);
@@ -954,8 +971,14 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     marker.setTitle(name);
                     marker.setSnippet(info); // Populate popup info bubble
                     
-                    // Style using standard coordinate icon resource
-                    marker.setIcon(getResources().getDrawable(R.drawable.ic_location, null));
+                    // Style using prominent destination custom_marker (red pin)
+                    marker.setIcon(getResources().getDrawable(R.drawable.custom_marker, null));
+
+                    // Track bounding limits
+                    minLat = Math.min(minLat, lat);
+                    maxLat = Math.max(maxLat, lat);
+                    minLng = Math.min(minLng, lng);
+                    maxLng = Math.max(maxLng, lng);
 
                     // 3. Register click listener to navigate to this specific marker upon tap
                     marker.setOnMarkerClickListener((m, mapView) -> {
@@ -988,6 +1011,24 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                     startDriveSimulation(20.0);
                 } else if (markersArray.length() > 1) {
                     Toast.makeText(this, "Found " + markersArray.length() + " places. Tap a pin to navigate.", Toast.LENGTH_LONG).show();
+
+                    // Adjust camera viewport bounds so all markers (including user) are cleanly visible on screen
+                    if (maxLat > -Double.MAX_VALUE && minLat < Double.MAX_VALUE) {
+                        double latPadding = (maxLat - minLat) * 0.15;
+                        double lngPadding = (maxLng - minLng) * 0.15;
+                        
+                        // Prevent zero padding if markers cluster precisely
+                        if (latPadding == 0) latPadding = 0.005;
+                        if (lngPadding == 0) lngPadding = 0.005;
+
+                        BoundingBox box = new BoundingBox(
+                            maxLat + latPadding, 
+                            maxLng + lngPadding, 
+                            minLat - latPadding, 
+                            minLng - lngPadding
+                        );
+                        mMapView.zoomToBoundingBox(box, true);
+                    }
                 }
 
                 mMapView.invalidate();
