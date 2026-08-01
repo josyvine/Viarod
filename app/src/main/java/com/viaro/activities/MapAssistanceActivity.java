@@ -128,6 +128,9 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
     private ImageButton mBtnGps;
     private ImageButton mBtnCompass;
 
+    // Modal Overlay Touch Lock state
+    private boolean mIsModalOpen = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -254,6 +257,11 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
         mWebView.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
+                // LOCK INTERCEPT: If an overlay modal is open, completely lock gestures from bleeding through to the native map
+                if (mIsModalOpen) {
+                    return false;
+                }
+
                 // 1. Let native floating controls receive touches naturally without map interference
                 if (isTouchOnView(mBtnGps, event) || isTouchOnView(mBtnCompass, event)) {
                     return false;
@@ -281,6 +289,14 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
 
         // Load map_assistance.html over virtual HTTPS origin
         mWebView.loadUrl("https://appassets.androidplatform.net/assets/map_assistance.html");
+    }
+
+    /**
+     * Sets whether an HTML overlay settings drawer or terminal modal is currently open.
+     * When true, native touch events are locked to prevent clicks from bleeding through to the map.
+     */
+    public void setModalOpen(boolean open) {
+        this.mIsModalOpen = open;
     }
 
     /**
@@ -777,6 +793,7 @@ public class MapAssistanceActivity extends AppCompatActivity implements SensorEv
                 double lat = currentPt.getLatitude() + fraction * (nextPt.getLatitude() - currentPt.getLatitude());
                 double lng = currentPt.getLongitude() + fraction * (nextPt.getLongitude() - currentPt.getLongitude());
 
+                mSimulatedCarPosition = new GeoPoint(lat, lng);
                 mSimulatedCarPosition = new GeoPoint(lat, lng);
                 mSimulatedCarMarker.setPosition(mSimulatedCarPosition);
 
